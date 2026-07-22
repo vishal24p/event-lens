@@ -22,7 +22,9 @@ class FakeAdapter(TranscriptionAdapter):
         self._fail_on = fail_on or set()
         self._lock = threading.Lock()
 
-    def transcribe(self, wav_path: Path) -> TranscriptionResult:
+    def transcribe(
+        self, wav_path: Path, initial_prompt: str = ""
+    ) -> TranscriptionResult:
         with self._lock:
             self.calls.append(Path(wav_path))
         vid = wav_path.stem

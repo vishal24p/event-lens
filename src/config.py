@@ -33,6 +33,7 @@ ENV_VARS: Dict[str, str] = {
     "MIN_DURATION_SECONDS": "min_duration_seconds",
     "DEVICE": "device",
     "COMPUTE_TYPE": "compute_type",
+    "INITIAL_PROMPT": "initial_prompt",
 }
 
 
@@ -79,6 +80,11 @@ class Config:
     # CTranslate2 compute type. "float16" is the standard choice on consumer
     # NVIDIA GPUs. Other valid values: "int8", "int8_float16", "float32".
     compute_type: str = "float16"
+
+    # Optional initial prompt passed to Whisper. Useful for code-switched
+    # audio (e.g. "Tamil and English") to bias the decoder toward the
+    # expected script and vocabulary. Leave empty for default behaviour.
+    initial_prompt: str = ""
 
 
 def _load_toml(path: Path) -> Dict[str, Any]:

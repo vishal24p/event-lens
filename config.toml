@@ -27,3 +27,7 @@ min_duration_seconds = 0.5
 [whisper]
 device = "cuda"
 compute_type = "float16"
+# Optional. Bias the decoder toward the expected script and vocabulary.
+# Useful for code-switched audio (e.g. Tamil + English in one clip).
+# Leave empty for default behaviour.
+initial_prompt = "Tamil and English mixed"

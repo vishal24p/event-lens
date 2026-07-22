@@ -67,6 +67,48 @@ def test_drain_processes_all_accepted(tmp_path):
     assert q.counts()[STATUS_COMPLETED] == 3
 
 
+def test_worker_passes_initial_prompt_to_adapter(tmp_path):
+    from tests.conftest import FakeAdapter
+
+    paths = new_session_paths(tmp_path)
+    _sine(paths.audio / "visitor_0001.wav", seconds=0.4)
+    q = ProcessingQueue()
+    q.enqueue(
+        QueueItem(
+            visitor_id="visitor_0001",
+            raw_audio_path=paths.audio / "visitor_0001.wav",
+        )
+    )
+    adapter = FakeAdapter()
+    worker = ProcessingWorker(
+        queue=q,
+        adapter=adapter,
+        paths=WorkerPaths(
+            normalized_dir=paths.normalized,
+            quality_dir=paths.quality,
+            transcripts_dir=paths.transcripts,
+        ),
+        target_sample_rate=16000,
+        target_peak_dbfs=-3.0,
+        model_name="medium",
+        device="cuda",
+        compute_type="float16",
+        initial_prompt="Tamil and English mixed",
+    )
+    # Capture prompt by wrapping the adapter.
+    captured = {}
+
+    def _wrap_transcribe(wav_path, initial_prompt=""):
+        captured["prompt"] = worker._initial_prompt  # noqa: SLF001
+        return adapter.transcribe(wav_path, initial_prompt=worker._initial_prompt)  # noqa: SLF001
+
+    worker._adapter.transcribe = _wrap_transcribe  # type: ignore[method-assign]
+    item = q.pop_pending()
+    worker._process_one(item)  # noqa: SLF001
+    worker.stop()
+    assert captured["prompt"] == "Tamil and English mixed"
+
+
 def test_failure_does_not_destroy_queue(tmp_path):
     paths = new_session_paths(tmp_path)
     for i in range(1, 4):

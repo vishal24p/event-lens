@@ -44,6 +44,7 @@ class ProcessingWorker:
         model_name: str,
         device: str,
         compute_type: str,
+        initial_prompt: str = "",
     ) -> None:
         self._queue = queue
         self._adapter = adapter
@@ -53,6 +54,7 @@ class ProcessingWorker:
         self._model_name = model_name
         self._device = device
         self._compute_type = compute_type
+        self._initial_prompt = initial_prompt
         self._thread: Optional[threading.Thread] = None
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -107,7 +109,9 @@ class ProcessingWorker:
                 return
 
             self._queue.set_status(vid, STATUS_TRANSCRIBING)
-            result: TranscriptionResult = self._adapter.transcribe(normalized_path)
+            result: TranscriptionResult = self._adapter.transcribe(
+                normalized_path, initial_prompt=self._initial_prompt
+            )
             self._save_transcript(vid, item, normalized_path, result)
             self._queue.set_status(vid, STATUS_COMPLETED)
         except Exception as e:
@@ -140,7 +144,9 @@ class ProcessingWorker:
         }
         out = self._paths.transcripts_dir / f"{vid}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        out.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
     @staticmethod
     def _read_duration(wav_path: Path) -> float:

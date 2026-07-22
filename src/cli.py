@@ -90,6 +90,7 @@ class Application:
             model_name=self._config.model_size,
             device=self._config.device,
             compute_type=self._config.compute_type,
+            initial_prompt=self._config.initial_prompt,
         )
         self._worker.start()
 
