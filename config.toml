@@ -1,0 +1,29 @@
+# Feedback-LLM configuration.
+# Edit values here. Anything here can be overridden by env vars
+# (see ENV_VARS in src/config.py) or CLI flags.
+
+[model]
+# Local path to the pre-downloaded faster-whisper model directory.
+# Default: models/faster-whisper-medium
+model_path = "models/faster-whisper-medium"
+# Logical size name. Recorded in transcripts for traceability. The loader
+# always reads from model_path, not from this string.
+model_size = "medium"
+
+[sessions]
+sessions_root = "sessions"
+# Leave input_device commented out to use the system default input device.
+# input_device = 0
+
+[audio]
+target_sample_rate = 16000
+channels = 1
+block_size = 4000
+audio_queue_blocks = 64
+peak_target_dbfs = -3.0
+silence_threshold_dbfs = -50.0
+min_duration_seconds = 0.5
+
+[whisper]
+device = "cuda"
+compute_type = "float16"

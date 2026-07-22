@@ -1,0 +1,155 @@
+"""Single sequential worker.
+
+Normalize -> transcribe -> save transcript. One item at a time.
+Failures are isolated per item; the raw accepted WAV is never deleted by the worker.
+"""
+from __future__ import annotations
+
+import json
+import threading
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+from ..audio.normalize import normalize_visitor_recording
+from ..models.transcribe import TranscriptionAdapter, TranscriptionResult
+from ..pipeline.queue import (
+    ProcessingQueue,
+    QueueItem,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_NORMALIZING,
+    STATUS_PENDING,
+    STATUS_TRANSCRIBING,
+)
+from ..storage.session import SessionPaths
+
+
+@dataclass
+class WorkerPaths:
+    normalized_dir: Path
+    quality_dir: Path
+    transcripts_dir: Path
+
+
+class ProcessingWorker:
+    def __init__(
+        self,
+        *,
+        queue: ProcessingQueue,
+        adapter: TranscriptionAdapter,
+        paths: WorkerPaths,
+        target_sample_rate: int,
+        target_peak_dbfs: float,
+        model_name: str,
+        device: str,
+        compute_type: str,
+    ) -> None:
+        self._queue = queue
+        self._adapter = adapter
+        self._paths = paths
+        self._target_sr = target_sample_rate
+        self._target_peak = target_peak_dbfs
+        self._model_name = model_name
+        self._device = device
+        self._compute_type = compute_type
+        self._thread: Optional[threading.Thread] = None
+        self._wake = threading.Event()
+        self._stop = threading.Event()
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(
+            target=self._loop, name="processing-worker", daemon=True
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._wake.set()
+        if self._thread is not None:
+            self._thread.join(timeout=30.0)
+            self._thread = None
+
+    def nudge(self) -> None:
+        self._wake.set()
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            item = self._queue.pop_pending()
+            if item is None:
+                # Wait until nudged (new item enqueued) or told to stop.
+                self._wake.wait(timeout=0.5)
+                self._wake.clear()
+                continue
+            self._process_one(item)
+
+    def _process_one(self, item: QueueItem) -> None:
+        vid = item.visitor_id
+        try:
+            self._queue.set_status(vid, STATUS_NORMALIZING)
+            normalized_path = self._paths.normalized_dir / f"{vid}.wav"
+            quality_path = self._paths.quality_dir / f"{vid}.json"
+            report = normalize_visitor_recording(
+                visitor_id=vid,
+                raw_path=item.raw_audio_path,
+                normalized_path=normalized_path,
+                quality_path=quality_path,
+                target_sample_rate=self._target_sr,
+                target_peak_dbfs=self._target_peak,
+            )
+            if report.status not in ("valid",):
+                # Mark failed but preserve the raw WAV and the normalized output if any.
+                self._queue.set_status(
+                    vid, STATUS_FAILED, error=f"normalization status={report.status}"
+                )
+                return
+
+            self._queue.set_status(vid, STATUS_TRANSCRIBING)
+            result: TranscriptionResult = self._adapter.transcribe(normalized_path)
+            self._save_transcript(vid, item, normalized_path, result)
+            self._queue.set_status(vid, STATUS_COMPLETED)
+        except Exception as e:
+            # GPU OOM, bad wav, anything. Preserve raw WAV. Mark item failed.
+            self._queue.set_status(vid, STATUS_FAILED, error=str(e))
+
+    def _save_transcript(
+        self,
+        vid: str,
+        item: QueueItem,
+        normalized_path: Path,
+        result: TranscriptionResult,
+    ) -> None:
+        payload = {
+            "visitor_id": vid,
+            "raw_audio_file": str(
+                Path("..") / "audio" / f"{vid}.wav"
+            ),
+            "normalized_audio_file": str(
+                Path("..") / "normalized" / f"{vid}.wav"
+            ),
+            "model": self._model_name,
+            "device": self._device,
+            "compute_type": self._compute_type,
+            "language": result.language,
+            "duration_seconds": self._read_duration(normalized_path),
+            "text": result.text,
+            "segments": [s.__dict__ for s in result.segments],
+            "status": "completed",
+        }
+        out = self._paths.transcripts_dir / f"{vid}.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    @staticmethod
+    def _read_duration(wav_path: Path) -> float:
+        try:
+            import soundfile as sf
+
+            with sf.SoundFile(str(wav_path), mode="r") as f:
+                if f.samplerate:
+                    return round(f.frames / float(f.samplerate), 3)
+        except Exception:
+            pass
+        return 0.0
