@@ -37,3 +37,6 @@ Thumbs.db
 # Local env / secrets
 .env
 .env.local
+
+# Superseded local catalog; the active catalog is project_catalog_pending_zones.json.
+context/museum_catalog.json
