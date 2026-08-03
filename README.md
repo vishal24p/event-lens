@@ -1,4 +1,4 @@
-# Feedback-LLM — Phase 1
+# Event Lens
 
 Operator-controlled audio feedback capture with Sarvam AI speech-to-text.
 Single visitor at a time. Manual accept / discard / stop.
@@ -19,15 +19,19 @@ uv sync
 
 ## Operator UI
 
-The operator console is a separate browser-first Next.js app in `ui/`, built with HeroUI primitives and a 21st.dev-style copy-in composition while the backend remains Python-owned:
+The operator console is a browser-first Next.js app in `ui/`. Python owns the microphone and transcription queue; the browser only controls and displays that pipeline.
 
 ```bash
+# Terminal 1
+uv run python -m src.operator_server
+
+# Terminal 2
 cd ui
 npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The current screen uses mock state for the three capture actions; backend API wiring comes next.
+Open `http://localhost:3000`. Start recording when a visitor is ready, then choose **Save & next**, **Save & pause**, **Retry**, or **Stop capture**.
 
 ## 2. Configure Sarvam AI
 
@@ -43,7 +47,7 @@ Set `SARVAM_STT_MODEL` only if you need to change it.
 ## 3. Validate configuration
 
 ```bash
-uv run feedback-llm --check-only
+uv run event-lens --check-only
 ```
 
 Prints the effective Sarvam transcription model and mode.
@@ -51,7 +55,7 @@ Prints the effective Sarvam transcription model and mode.
 ## 4. Run capture
 
 ```bash
-uv run feedback-llm
+uv run event-lens
 ```
 
 Console:
@@ -80,8 +84,8 @@ data/
   reports/
 ```
 
-`Q` stops new capture, discards only the current partial, and lets the queue
-drain before exiting.
+`Q` stops capture, discards only the current partial, and lets saved feedback
+continue through transcription. `queue.json` restores unfinished work after a backend restart.
 
 ## Tests
 

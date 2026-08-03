@@ -119,7 +119,7 @@ export default function Home() {
         <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/[0.08]">
           <div className="flex items-center gap-3">
             <div className="grid size-7 place-items-center rounded-md bg-[#c6ff33]"><Radio className="size-3.5 text-black" /></div>
-            <div><h1 className="text-sm font-semibold tracking-tight text-white leading-none">feedback-llm</h1><p className="text-[10px] text-white/40 mt-0.5 leading-none">Operator console</p></div>
+            <div><h1 className="text-sm font-semibold tracking-tight text-white leading-none">Event Lens</h1><p className="text-[10px] text-white/40 mt-0.5 leading-none">Operator console</p></div>
           </div>
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs text-white/55">{status ? "Global feedback queue" : "Connecting…"}</span>

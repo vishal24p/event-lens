@@ -1285,8 +1285,8 @@
                                              ]
                      },
                      {
-                         "project_id":  "feedback_llm_capture",
-                         "official_name":  "Feedback-LLM Voice Feedback Station",
+                         "project_id":  "event_lens_capture",
+                         "official_name":  "Event Lens Voice Feedback Station",
                          "short_name":  "Feedback LLM",
                          "zone":  {
                                       "number":  "8",
@@ -1557,8 +1557,8 @@
                                       ],
                          "confusable_with":  [
                                                  {
-                                                     "reason":  "Both use speech-to-text and spoken interaction; this project is a mobile museum guide robot, while Feedback-LLM is a stationary visitor-feedback station.",
-                                                     "project_id":  "feedback_llm_capture"
+                                                     "reason":  "Both use speech-to-text and spoken interaction; this project is a mobile museum guide robot, while Event Lens is a stationary visitor-feedback station.",
+                                                     "project_id":  "event_lens_capture"
                                                  },
                                                  {
                                                      "reason":  "Both provide spoken AI conversation; this project guides visitors around the museum, while the AI Time Portal enables historical conversations on screen.",

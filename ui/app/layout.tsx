@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "feedback-llm",
+  title: "Event Lens",
   description: "Operator console for visitor feedback capture.",
 };
 

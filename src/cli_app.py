@@ -324,7 +324,7 @@ class Application:
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(prog="feedback-llm")
+    p = argparse.ArgumentParser(prog="event-lens")
     p.add_argument(
         "--config",
         type=Path,

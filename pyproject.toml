@@ -1,5 +1,5 @@
 [project]
-name = "feedback-llm"
+name = "event-lens"
 version = "0.1.0"
 description = "Operator-controlled audio feedback capture with local faster-whisper transcription."
 requires-python = ">=3.10"
@@ -20,7 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-feedback-llm = "src.cli_app:main"
+event-lens = "src.cli_app:main"
 
 [build-system]
 requires = ["hatchling"]

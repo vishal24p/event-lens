@@ -1,4 +1,4 @@
-# Feedback-LLM configuration.
+# Event Lens configuration.
 # Edit values here. Anything here can be overridden by env vars
 # (see ENV_VARS in src/config.py) or CLI flags.
 
