@@ -39,7 +39,10 @@ Thumbs.db
 
 # Local env / secrets
 .env
-.env.local
+.env.*
+!.env.example
 
-# Superseded local catalog; the active catalog is project_catalog_pending_zones.json.
-context/museum_catalog.json
+# Local package-manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

@@ -1,8 +1,8 @@
-# Event Lens reference
+# Reference
 
-This reference describes the externally configurable and observable surface of Event Lens.
+This page describes the commands, configuration, local API, and stored records used by Event Lens.
 
-## Python commands
+## Commands
 
 ### `event-lens`
 
@@ -12,80 +12,83 @@ Runs the terminal capture application.
 event-lens [--config PATH] [--data-root PATH] [--input-device INTEGER] [--check-only]
 ```
 
-| Option | Default | Effect |
-| --- | --- | --- |
-| `--config` | `config.toml` | TOML configuration file. A missing file is treated as no TOML override. |
-| `--data-root` | Resolved configuration value | Root for accepted audio, derived audio, queue state, transcripts, and reports. |
-| `--input-device` | Resolved configuration value | Numeric input-device index passed to the audio backend. |
-| `--check-only` | Off | Resolves configuration and prints the transcription provider, model, and mode without starting capture. |
-
-The terminal application supports Enter to accept, Escape to discard, and Q to stop. Its keyboard listener uses Windows `msvcrt`; non-Windows terminals continue without those keyboard controls.
+| Option | Meaning |
+| --- | --- |
+| `--config` | TOML configuration file. Default: `config.toml`. |
+| `--data-root` | Root directory for accepted audio, derived files, queue state, transcripts, and reports. |
+| `--input-device` | Numeric recording-device index. List available devices with `uv run python -c "import sounddevice as sd; print(sd.query_devices())"`; use an input device, not an output device. |
+| `--check-only` | Prints resolved transcription settings without starting capture. |
 
 ### `python -m src.operator_server`
 
-Starts the local HTTP API used by the browser console.
+Starts the local API used by the browser console.
 
 ```text
 python -m src.operator_server [--config PATH] [--data-root PATH] [--input-device INTEGER] [--port INTEGER]
 ```
 
-`--port` defaults to `8765`. The server binds to `127.0.0.1`, not a network interface.
+The default port is `8765`. The server listens only on `127.0.0.1`.
 
 ### `python -m src.reporting.cli report`
 
-Builds an event report from unreported completed transcripts.
+Creates an event feedback report from completed transcripts that have not already been reported.
 
 ```text
 python -m src.reporting.cli report [--data-root PATH] [--model sarvam-105b]
 ```
 
-`--data-root` defaults to `data`. `--model` is restricted to `sarvam-105b`; a missing API key returns exit code 3, a bad data path or model returns 2, and report or provider failures return 1.
+The data root defaults to `data`. The report model is currently restricted to `sarvam-105b`.
 
 ## Configuration
 
-Values resolve in this order, with later sources winning: built-in defaults, TOML, environment variables, then supported CLI flags.
+Configuration values are resolved in this order: built-in defaults, `config.toml`, environment variables, then supported command-line flags.
 
-| TOML key | Environment variable | Default | Meaning |
+| TOML key | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |
-| `storage.data_root` | `DATA_ROOT` | `data` | Root for application outputs. |
-| `storage.input_device` | `INPUT_DEVICE` | system default | Input-device index. |
-| `audio.target_sample_rate` | `TARGET_SAMPLE_RATE` | `16000` | Preferred capture and normalized output rate. A device may capture at its native rate and be resampled later. |
+| `storage.data_root` | `DATA_ROOT` | `data` | Root for application output. |
+| `storage.input_device` | `INPUT_DEVICE` | system default | Input-device index. Set this for a fixed external microphone; omit it to use the system default, such as the laptop microphone. |
+| `audio.target_sample_rate` | `TARGET_SAMPLE_RATE` | `16000` | Preferred capture and normalised output rate. |
 | `audio.channels` | `CHANNELS` | `1` | Capture channel count. |
-| `audio.block_size` | `BLOCK_SIZE` | `4000` | Frames per audio callback. |
-| `audio.audio_queue_blocks` | `AUDIO_QUEUE_BLOCKS` | `64` | Maximum callback-to-writer audio blocks. |
-| `audio.peak_target_dbfs` | `PEAK_TARGET_DBFS` | `-3.0` | Peak-normalization target. |
-| `audio.silence_threshold_dbfs` | `SILENCE_THRESHOLD_DBFS` | `-50.0` | Exposed silence threshold. The current normalizer uses a fixed `-50.0` dBFS threshold. |
-| `audio.min_duration_seconds` | `MIN_DURATION_SECONDS` | `0.5` | Exposed minimum duration. The current capture path does not enforce it. |
+| `audio.block_size` | `BLOCK_SIZE` | `4000` | Frames per callback. |
+| `audio.audio_queue_blocks` | `AUDIO_QUEUE_BLOCKS` | `64` | Maximum capture-to-writer blocks. |
+| `audio.peak_target_dbfs` | `PEAK_TARGET_DBFS` | `-3.0` | Peak-normalisation target. |
+| `audio.silence_threshold_dbfs` | `SILENCE_THRESHOLD_DBFS` | `-50.0` | Reserved compatibility setting; the normaliser currently uses `-50.0` dBFS. |
+| `audio.min_duration_seconds` | `MIN_DURATION_SECONDS` | `0.5` | Reserved compatibility setting; the capture path does not currently enforce it. |
 | `sarvam.api_key` | `SARVAM_API_KEY` | empty | Required Sarvam API key. |
-| `sarvam.model` | `SARVAM_STT_MODEL` | `saaras:v3` | Speech-to-text model. `SARVAM_MODEL` is accepted as a lower-priority legacy alias. |
-| `sarvam.mode` | `SARVAM_MODE` | `codemix` | Sarvam transcription mode. |
-| `sarvam.language_code` | `SARVAM_LANGUAGE_CODE` | `unknown` | Language code; `unknown` enables automatic detection. |
+| `sarvam.model` | `SARVAM_STT_MODEL` | `saaras:v3` | Speech-to-text model. |
+| `sarvam.mode` | `SARVAM_MODE` | `codemix` | Transcription mode. |
+| `sarvam.language_code` | `SARVAM_LANGUAGE_CODE` | `unknown` | Language code; `unknown` enables detection. |
 
-`SARVAM_LLM_MODEL` controls the report service's requested model and defaults to `sarvam-105b`. The standalone report CLI rejects any other model.
+`SARVAM_LLM_MODEL` selects the report model and defaults to `sarvam-105b`.
 
-## Local HTTP API
+## Local API
 
-All JSON responses use either `{ "data": ... }` or `{ "error": { "code": string, "message": string } }`.
+Every JSON response is either `{ "data": ... }` or `{ "error": { "code": string, "message": string } }`.
 
-| Method and path | Success | Behavior |
-| --- | --- | --- |
-| `GET /api/status` | 200 | Returns capture state, active visitor, elapsed seconds, RMS input level, queue counts and items, and `report_ready`. |
-| `POST /api/capture/start` | 200 | Starts the next recording from the idle state. |
-| `POST /api/capture/accept` | 200 | Accepts the active recording and immediately starts the next one. |
-| `POST /api/capture/accept-and-pause` | 200 | Accepts the active recording and returns to idle. |
-| `POST /api/capture/discard` | 200 | Deletes the active partial recording and starts the same visitor ID again. |
-| `POST /api/capture/stop` | 200 | Stops recording, discards the partial WAV, and drains accepted work. |
-| `POST /api/report` | 200 | Generates a report if it is ready; returns `markdown_url` and the actual model. |
-| `GET /api/report/markdown` | 200 | Returns the latest report as Markdown. |
+| Route | Purpose |
+| --- | --- |
+| `GET /api/status` | Current capture state, active visitor, input level, queue state, and report availability. |
+| `POST /api/capture/start` | Starts the next recording. |
+| `POST /api/capture/accept` | Saves the active recording and starts the next one. |
+| `POST /api/capture/accept-and-pause` | Saves the active recording and returns to ready. |
+| `POST /api/capture/discard` | Discards the active partial recording and restarts the same visitor ID. |
+| `POST /api/capture/stop` | Stops capture, discards the active partial WAV, and lets accepted work finish. |
+| `POST /api/report` | Generates the report when it is ready. |
+| `GET /api/report/markdown` | Returns the latest event feedback report as Markdown. |
 
-Invalid capture transitions return 409 with `invalid_capture_state`. A report requested before it is ready returns 409 with `report_not_ready`; a missing report Markdown file returns 404 with `report_not_found`.
+Invalid capture actions return HTTP 409. Requesting a report before it is ready also returns HTTP 409.
 
-## Generated records
+## Stored data
 
-For each accepted visitor, the configured data root receives a raw WAV, a normalized mono 16 kHz WAV, a quality JSON record, and, on successful transcription, a transcript JSON record. The raw accepted WAV is never modified or deleted by the processing worker.
+The configured data root contains:
 
-Queue state is stored as `queue.json`. Each item records its visitor ID, raw-audio filename, status, and optional error. Valid statuses are `pending`, `normalizing`, `transcribing`, `completed`, and `failed`. On restart, existing transcripts mark their records completed; recoverable in-flight work with a raw WAV returns to pending.
+| Path | Contents |
+| --- | --- |
+| `audio/` | Original accepted WAV files. |
+| `normalized/` | Derived mono 16 kHz WAV files. |
+| `quality/` | Audio-quality records. |
+| `transcripts/` | Completed transcript JSON files. |
+| `queue.json` | Durable processing state. |
+| `reports/` | Provider responses, versioned report JSON and Markdown, `event_feedback_report.md`, and the report manifest. |
 
-A transcript contains the visitor ID, relative raw and normalized audio references, Sarvam settings, detected language, duration, text, timestamped segments, and a `completed` status.
-
-Each report run stores the provider response, a versioned JSON report, timestamped Markdown, the latest Markdown alias `event_feedback_report.md`, and a manifest. The manifest prevents the same completed transcripts from being reported twice. Report Markdown groups validated findings into working well, needs attention, and mixed feedback; it excludes raw transcripts and supporting visitor IDs.
+Each queue item has one of these statuses: `pending`, `normalizing`, `transcribing`, `completed`, or `failed`. The report manifest prevents a completed transcript from being included in more than one report.

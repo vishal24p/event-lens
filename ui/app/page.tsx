@@ -89,6 +89,11 @@ export default function Home() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
+      if (event.key === "Escape" && isShortcutsOpen) {
+        event.preventDefault();
+        setIsShortcutsOpen(false);
+        return;
+      }
       const action = event.key === "Enter" && isIdle ? ["Enter", "/api/capture/start", "Recording started", "success"] as const
         : event.key === "Enter" ? ["Enter", "/api/capture/accept", "Visitor saved", "success"] as const
         : event.key === "Escape" ? ["Escape", "/api/capture/discard", "Recording discarded", "warning"] as const

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "phase-2-museum-event-findings-v1",
-  "title": "Phase2MuseumEventFindingsV1",
+  "$id": "event-feedback-report-v1",
+  "title": "EventFeedbackReportV1",
   "type": "object",
-  "required": ["museum_overview", "findings", "report_limitations"],
+  "required": ["event_overview", "findings", "report_limitations"],
   "additionalProperties": false,
   "properties": {
-    "museum_overview": {"type": "string", "minLength": 1},
+    "event_overview": {"type": "string", "minLength": 1},
     "findings": {
       "type": "array",
       "items": {

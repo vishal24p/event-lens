@@ -1,4 +1,4 @@
-"""Generate the Phase 2 AI Museum findings report from Phase 1 transcripts."""
+"""Generate an event findings report from completed transcripts."""
 from __future__ import annotations
 
 import json
@@ -63,8 +63,10 @@ def _read_transcripts(transcripts_dir: Path, *, excluded_visitor_ids: set[str] |
         except (OSError, json.JSONDecodeError) as error:
             raise EventReportError(f"invalid transcript file {path.name}: {error}") from error
         visitor_id, text = payload.get("visitor_id"), payload.get("text")
-        if not isinstance(visitor_id, str) or not isinstance(text, str) or not text.strip():
-            raise EventReportError(f"transcript file {path.name} has no visitor_id or text")
+        if not isinstance(visitor_id, str):
+            raise EventReportError(f"transcript file {path.name} has no visitor_id")
+        if not isinstance(text, str) or not text.strip():
+            continue
         if visitor_id not in (excluded_visitor_ids or set()):
             transcripts.append({"visitor_id": visitor_id, "text": text})
     return transcripts
@@ -105,7 +107,7 @@ def has_unreported_transcripts(data_root: Path) -> bool:
 def _validate_narrative(*, narrative: dict, project_ids: set[str], visitor_ids: set[str]) -> None:
     if not isinstance(narrative, dict):
         raise EventReportError("report response is not a JSON object")
-    for field in ("museum_overview", "report_limitations"):
+    for field in ("event_overview", "report_limitations"):
         if not isinstance(narrative.get(field), str) or not narrative[field].strip():
             raise EventReportError(f"report response has no {field}")
     findings = narrative.get("findings")
@@ -131,7 +133,7 @@ def _validate_narrative(*, narrative: dict, project_ids: set[str], visitor_ids: 
 def _markdown(report: dict, catalog: dict) -> str:
     projects = _project_index(catalog)
     labels = {"working_well": "Working well", "needs_attention": "Needs attention", "mixed_feedback": "Mixed feedback"}
-    lines = ["# AI Museum Event Report", "", f"**Report:** {report['report_id']}", "", "## Museum overview", "", report["narrative"]["museum_overview"]]
+    lines = ["# Event Feedback Report", "", f"**Report:** {report['report_id']}", "", "## Event overview", "", report["narrative"]["event_overview"]]
     for outcome in OUTCOMES:
         matching = [item for item in report["narrative"]["findings"] if item["outcome"] == outcome]
         lines.extend(["", f"## {labels[outcome]}", ""])
@@ -156,13 +158,13 @@ def generate_event_report(
     )
     if not transcripts:
         raise EventReportError("no unreported completed transcripts found")
-    report_id = f"museum_event_report_{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S_%f')}"
+    report_id = f"event_feedback_report_{datetime.now(timezone.utc).strftime('%Y-%m-%d_%H-%M-%S_%f')}"
     report_path = reports_dir / f"{report_id}.json"
     markdown_path = reports_dir / f"{report_id}.md"
     project_ids = set(_project_index(catalog))
     response = (transport or sarvam_client.chat)(
         api_key=api_key, model=model, system_prompt=system_prompt,
-        user_payload={"report_id": report_id, "museum_catalog": catalog, "transcripts": transcripts},
+        user_payload={"report_id": report_id, "project_catalog": catalog, "transcripts": transcripts},
         response_schema=response_schema,
     )
     _write_text(reports_dir / f"{report_id}.response.txt", response.content)
@@ -173,12 +175,12 @@ def generate_event_report(
         "report_id": report_id,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "narrative": response.body,
-        "processing": {"phase": "phase_2_museum_report", "requested_model": model, "actual_model": response.actual_model},
+        "processing": {"requested_model": model, "actual_model": response.actual_model},
     }
     _write_json(report_path, report)
     markdown = _markdown(report, catalog)
     _write_text(markdown_path, markdown)
-    _write_text(reports_dir / "museum_event_report.md", markdown)
+    _write_text(reports_dir / "event_feedback_report.md", markdown)
     manifest["manifest_version"] = MANIFEST_VERSION
     manifest.setdefault("reports", []).append(
         {"report_id": report_id, "generated_at": report["generated_at"], "visitor_ids": [item["visitor_id"] for item in transcripts]}

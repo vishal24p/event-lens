@@ -1,48 +1,61 @@
-# How Event Lens protects feedback from capture to report
+# Architecture
 
-Event Lens separates real-time recording from slower transcription and reporting so an operator can move immediately to the next visitor without risking an accepted recording.
+Event Lens is a local feedback pipeline. Its design goal is simple: saving one visitor's feedback must never stop the system from being ready for the next visitor.
 
-## The problem
-
-Microphone input arrives on a timing-sensitive callback. Network transcription and report generation are slower and can fail. Combining those jobs would either block capture or make one failure discard unrelated feedback.
-
-## The approach
+## Processing flow
 
 ```mermaid
 flowchart LR
-    Operator["Operator: browser or terminal"] --> Capture["Capture session"]
-    Capture -->|"accept"| Raw["Raw accepted WAV"]
-    Capture -->|"discard or stop"| Drop["Delete partial WAV"]
-    Raw --> Queue["Durable FIFO queue"]
-    Queue --> Normalize["Normalize and quality-check"]
-    Normalize -->|"valid"| STT["Sarvam transcription"]
-    Normalize -->|"invalid or near-silent"| Failed["Failed queue item"]
-    STT -->|"text"| Transcript["Transcript JSON"]
-    STT -->|"error or no text"| Failed
-    Transcript --> Report["Validated Sarvam report"]
-    Report --> Markdown["Operator-facing Markdown"]
+    A["Operator"] --> B["Capture session"]
+    B -->|"save"| C["Raw WAV"]
+    B -->|"retry or stop"| D["Discard partial WAV"]
+    C --> E["Durable FIFO queue"]
+    E --> F["Normalise and check audio"]
+    F -->|"valid"| G["Sarvam transcription"]
+    F -->|"invalid or near-silent"| H["Failed item"]
+    G -->|"text returned"| I["Transcript JSON"]
+    G -->|"error or no text"| H
+    I --> J["Validated event report"]
+    J --> K["Markdown and JSON outputs"]
 ```
 
-The PortAudio callback only copies a block into a bounded queue. A dedicated writer thread owns the WAV handle, and accept, discard, and stop wait for that thread to close the file before renaming or deleting it. This prevents a race between a control action and an open audio file.
+## Responsibilities
 
-Accepted recordings enter a single sequential worker. The worker creates separate normalized and quality outputs, then transcribes only valid normalized audio. It marks a single item failed on an exception and continues with later items. Raw accepted WAV files remain intact even after a normalization or transcription failure.
+| Component | Responsibility |
+| --- | --- |
+| Python application | Owns microphone capture, files, queue state, processing, transcription, and reports. |
+| Browser console | A thin local control surface that displays status and sends operator actions to the Python application. |
+| Sarvam speech-to-text | Converts a valid audio recording into text. |
+| Sarvam report model | Creates project findings from transcripts and the supplied project catalog. |
+| Local storage | Keeps source audio, derived files, queue state, transcripts, provider responses, reports, and the report manifest. |
 
-The report stage reads only completed, non-empty transcripts that were not listed in a prior report manifest. It sends those transcripts and the museum project catalog to Sarvam with a JSON schema, validates the returned project IDs, outcomes, and supporting visitor IDs, then produces a Markdown report without raw quotations or visitor IDs.
+## Reliability decisions
 
-## Recovery behavior
+### Recording is separate from AI work
 
-The queue persists to one JSON file by atomically replacing a temporary file. On startup, Event Lens reconciles that state with the filesystem:
+Audio callbacks are timing-sensitive. Network transcription and report generation are slower and may fail. Event Lens therefore writes recording blocks through a dedicated writer and processes accepted recordings through a separate sequential worker.
 
-- A queue record with a transcript is treated as completed.
-- A pending, normalizing, or transcribing item with a raw WAV returns to pending.
-- A non-failed item without its raw WAV becomes failed.
-- Raw visitor WAV files missing from the persisted queue are discovered and queued or marked completed based on their transcript.
+The operator can save a recording and begin the next one while the worker processes the earlier file.
 
-This makes an interrupted event recoverable without retranscribing already completed recordings.
+### Accepted feedback is recoverable
 
-## Trade-offs
+An accepted recording is first stored as a raw WAV and added to `queue.json`. Queue updates use an atomic file replacement. When the service restarts, Event Lens reconciles the queue with the files on disk:
 
-- The processor is deliberately single-threaded and FIFO. It provides predictable ordering and limits concurrent provider work, at the cost of throughput for large backlogs.
-- Resampling uses linear interpolation. It keeps the dependency surface small for short feedback clips, rather than pursuing studio-grade resampling.
-- The browser has no direct microphone access. It receives level and state from the Python service, so one capture implementation serves both terminal and browser operators.
-- The service binds to loopback. This protects microphone controls from remote access, but the browser console must run on the same machine unless the deployment is intentionally redesigned.
+- a valid transcript marks its recording as completed;
+- pending or interrupted work with a raw WAV returns to pending;
+- a non-failed item without its raw WAV becomes failed; and
+- orphaned visitor WAV files are discovered and added to the queue.
+
+This keeps completed transcripts from being sent again while allowing interrupted work to continue.
+
+### Reports are evidence constrained
+
+The report model receives only completed, non-empty transcripts plus the project catalog. Its response must match a JSON schema. Before Event Lens writes a report, it checks that every referenced project exists in the catalog and every supporting visitor ID came from the submitted transcript set.
+
+The final Markdown report contains findings, not raw transcripts or visitor identifiers.
+
+## Deliberate trade-offs
+
+- Processing is single-threaded and FIFO. This keeps ordering predictable and limits concurrent provider requests; a very large backlog will take longer to clear.
+- The browser does not use its own microphone API. The Python service is the single capture implementation for both browser and terminal operation.
+- The API binds to loopback only. This is safer for a machine controlling a microphone, but the browser console must run on that same machine.

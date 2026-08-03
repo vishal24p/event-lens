@@ -1,4 +1,4 @@
-"""Phase 2 CLI: create the final AI Museum report from Phase 1 transcripts."""
+"""Create the final event report from completed transcripts."""
 from __future__ import annotations
 
 import argparse
@@ -26,18 +26,15 @@ def _load_json(root: Path, relative_path: str) -> dict:
 
 
 def _load_catalog(root: Path) -> dict:
-    path = "context/project_catalog_pending_zones.json"
-    if not (root / path).is_file():
-        path = "context/museum_catalog.json"
-    return _load_json(root, path)
+    return _load_json(root, "context/project_catalog.json")
 
 
 def main(argv: Optional[list[str]] = None) -> int:
     root = _project_root()
     load_dotenv(root / ".env")
-    parser = argparse.ArgumentParser(prog="python -m src.reporting.cli", description="Phase 2 AI Museum report CLI")
+    parser = argparse.ArgumentParser(prog="python -m src.reporting.cli", description="Event report CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    report = subparsers.add_parser("report", help="Generate the final museum report from Phase 1 transcripts")
+    report = subparsers.add_parser("report", help="Generate the final event feedback report from completed transcripts")
     report.add_argument("--data-root", type=Path, default=Path("data"))
     report.add_argument("--model", default=os.environ.get("SARVAM_LLM_MODEL", DEFAULT_MODEL))
     args = parser.parse_args(argv)
@@ -53,19 +50,19 @@ def main(argv: Optional[list[str]] = None) -> int:
         print("error: SARVAM_API_KEY is not set. Refusing to send real traffic.", file=sys.stderr)
         return 3
     try:
-        print(f"[phase 2 report] provider: Sarvam AI; model: {args.model}")
+        print(f"[report] provider: Sarvam AI; model: {args.model}")
         outcome = generate_event_report(
             data_root=data_root,
             catalog=_load_catalog(root),
-            system_prompt=(root / "prompts" / "museum_event_report_v1.txt").read_text(encoding="utf-8"),
-            response_schema=_load_json(root, "schemas/museum_event_report_v1.json"),
+            system_prompt=(root / "prompts" / "event_feedback_report_v1.txt").read_text(encoding="utf-8"),
+            response_schema=_load_json(root, "schemas/event_feedback_report_v1.json"),
             api_key=api_key,
             model=args.model,
         )
     except (EventReportError, SarvamError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
-    print(f"[phase 2 report] completed: {outcome.report_path}, {outcome.markdown_path}")
+    print(f"[report] completed: {outcome.report_path}, {outcome.markdown_path}")
     return 0
 
 

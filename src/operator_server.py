@@ -46,9 +46,9 @@ def build_server(*, application: Application, report_generator: ReportGenerator,
                 return
             if self.path == "/api/report/markdown":
                 data_root = application.data_root
-                path = data_root / "reports" / "museum_event_report.md" if data_root else None
+                path = data_root / "reports" / "event_feedback_report.md" if data_root else None
                 if path is None or not path.is_file():
-                    self._error(404, "report_not_found", "No museum report has been generated yet.")
+                    self._error(404, "report_not_found", "No event feedback report has been generated yet.")
                     return
                 body = path.read_bytes()
                 self.send_response(200)
@@ -87,7 +87,7 @@ def build_server(*, application: Application, report_generator: ReportGenerator,
                 except (ApiConflict, EventReportError) as error:
                     self._error(409, "report_not_ready", str(error))
                 except Exception:  # pragma: no cover - provider/network failure boundary
-                    self._error(500, "report_failed", "The museum report could not be generated.")
+                    self._error(500, "report_failed", "The event feedback report could not be generated.")
                 return
             self._error(404, "not_found", "Unknown endpoint.")
 
@@ -100,10 +100,10 @@ def _project_root() -> Path:
 
 def _report_generator(config: Config) -> ReportGenerator:
     root = _project_root()
-    catalog_path = root / "context" / "project_catalog_pending_zones.json"
+    catalog_path = root / "context" / "project_catalog.json"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-    prompt = (root / "prompts" / "museum_event_report_v1.txt").read_text(encoding="utf-8")
-    schema = json.loads((root / "schemas" / "museum_event_report_v1.json").read_text(encoding="utf-8"))
+    prompt = (root / "prompts" / "event_feedback_report_v1.txt").read_text(encoding="utf-8")
+    schema = json.loads((root / "schemas" / "event_feedback_report_v1.json").read_text(encoding="utf-8"))
     model = os.environ.get("SARVAM_LLM_MODEL", "sarvam-105b")
 
     def generate(data_root: Path) -> dict:

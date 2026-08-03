@@ -113,3 +113,27 @@ def test_capture_exposes_real_input_level(tmp_path: Path):
     )
     capture._on_audio(np.array([[0.5], [-0.5]], dtype=np.float32), 2, None, None)  # noqa: SLF001
     assert capture.input_level == 0.5
+
+
+def test_capture_finalize_waits_for_writer_to_close_wav(tmp_path: Path):
+    capture = CaptureSession(
+        input_device=None,
+        preferred_sample_rate=16_000,
+        channels=1,
+        block_size=4000,
+        queue_max_blocks=2,
+        audio_dir=tmp_path,
+        peak_target_dbfs=-3.0,
+    )
+    capture._current_path = tmp_path / "visitor_0001.partial.wav"  # noqa: SLF001
+    capture._current_visitor = "visitor_0001"  # noqa: SLF001
+    capture._sample_rate = 16_000  # noqa: SLF001
+    capture._is_running = True  # noqa: SLF001
+    capture._writer_thread = threading.Thread(target=capture._writer_loop)  # noqa: SLF001
+    capture._writer_thread.start()  # noqa: SLF001
+
+    result = capture.finalize_and_accept()
+
+    assert result.ok is False
+    assert capture.is_running is False
+    assert capture._writer_thread is None  # noqa: SLF001

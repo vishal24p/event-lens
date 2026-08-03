@@ -13,6 +13,7 @@ from src.pipeline.queue import (
     STATUS_FAILED,
 )
 from src.pipeline.worker_v2 import ProcessingWorker, WorkerPaths
+from src.stt.types import TranscriptionResult
 from src.storage.data import data_paths
 
 from tests.conftest import FakeAdapter
@@ -107,6 +108,27 @@ def test_worker_passes_initial_prompt_to_adapter(tmp_path):
     worker._process_one(item)  # noqa: SLF001
     worker.stop()
     assert captured["prompt"] == "Tamil and English mixed"
+
+
+def test_empty_transcription_is_not_saved_or_reported(tmp_path):
+    paths = data_paths(tmp_path)
+    _sine(paths.audio / "visitor_0001.wav", seconds=0.4)
+    q = ProcessingQueue()
+    q.enqueue(QueueItem(visitor_id="visitor_0001", raw_audio_path=paths.audio / "visitor_0001.wav"))
+
+    class EmptyAdapter(FakeAdapter):
+        def transcribe(self, wav_path, initial_prompt=""):
+            return TranscriptionResult(language="en", text="", segments=[])
+
+    worker = ProcessingWorker(
+        queue=q, adapter=EmptyAdapter(),
+        paths=WorkerPaths(paths.normalized, paths.quality, paths.transcripts),
+        target_sample_rate=16000, target_peak_dbfs=-3.0,
+    )
+    worker._process_one(q.pop_pending())  # noqa: SLF001
+
+    assert q.counts()[STATUS_FAILED] == 1
+    assert not (paths.transcripts / "visitor_0001.json").exists()
 
 
 def test_failure_does_not_destroy_queue(tmp_path):

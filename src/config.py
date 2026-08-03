@@ -30,7 +30,7 @@ ENV_VARS: Dict[str, str] = {
     "SILENCE_THRESHOLD_DBFS": "silence_threshold_dbfs",
     "MIN_DURATION_SECONDS": "min_duration_seconds",
     "SARVAM_API_KEY": "sarvam_api_key",
-    # Legacy Phase 1 name; preserve existing .env files. The explicit STT
+    # Legacy STT name; preserve existing .env files. The explicit STT
     # name appears afterwards, so it takes precedence when both are set.
     "SARVAM_MODEL": "sarvam_model",
     "SARVAM_STT_MODEL": "sarvam_model",
@@ -98,7 +98,9 @@ def _coerce(field_name: str, value: Any) -> Any:
     for f in fields(Config):
         if f.name == field_name:
             t = f.type
-            if t == "Path" or t == "str" or t.startswith("str"):
+            if t == "Path":
+                return Path(str(value))
+            if t == "str" or t.startswith("str"):
                 return value
             if t == "int" or t.startswith("int"):
                 return int(value)

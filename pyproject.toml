@@ -1,14 +1,12 @@
 [project]
 name = "event-lens"
 version = "0.1.0"
-description = "Operator-controlled audio feedback capture with local faster-whisper transcription."
+description = "Operator-controlled audio feedback capture, Sarvam transcription, and event reporting."
 requires-python = ">=3.10"
 dependencies = [
     "sounddevice>=0.4.7",
     "soundfile>=0.12.1",
     "numpy>=1.26",
-    "faster-whisper>=1.0.0",
-    "huggingface-hub>=1.24.0",
     "tomli>=2.4.1",
     "python-dotenv>=1.0.0",
     "sarvamai>=0.1.28",

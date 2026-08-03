@@ -209,13 +209,17 @@ class CaptureSession:
                 print(f"[capture] stream close error: {e}", flush=True)
             self._stream = None
 
-        # 2. Tell the writer to stop and wait for it to finish.
-        try:
-            self._audio_q.put(_Stop(), timeout=1.0)
-        except queue.Full:
-            pass
+        # 2. Tell the writer to stop and wait for it to close the WAV file.
+        # The queue may still contain audio blocks, so keep trying until the
+        # writer has received its stop marker rather than silently timing out.
         if self._writer_thread is not None:
-            self._writer_thread.join(timeout=10.0)
+            while self._writer_thread.is_alive():
+                try:
+                    self._audio_q.put(_Stop(), timeout=0.1)
+                    break
+                except queue.Full:
+                    continue
+            self._writer_thread.join()
             self._writer_thread = None
 
         path = self._current_path

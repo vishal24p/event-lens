@@ -31,6 +31,10 @@ class WorkerPaths:
     transcripts_dir: Path
 
 
+def _has_usable_text(result: TranscriptionResult) -> bool:
+    return bool(result.text and result.text.strip())
+
+
 class ProcessingWorker:
     def __init__(
         self,
@@ -109,6 +113,9 @@ class ProcessingWorker:
             result: TranscriptionResult = self._adapter.transcribe(
                 normalized_path, initial_prompt=self._initial_prompt
             )
+            if not _has_usable_text(result):
+                self._queue.set_status(vid, STATUS_FAILED, error="transcription returned no text")
+                return
             self._save_transcript(vid, item, normalized_path, result)
             self._queue.set_status(vid, STATUS_COMPLETED)
         except Exception as e:

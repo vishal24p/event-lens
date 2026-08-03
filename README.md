@@ -1,95 +1,109 @@
 # Event Lens
 
-Event Lens is an end-to-end museum feedback intelligence system. It captures spoken visitor feedback, protects the original recordings, processes and transcribes accepted audio, connects feedback to the right museum project, and produces an evidence-based event report.
+Event Lens turns spoken feedback from a live event into structured, evidence-based findings about the projects visitors discuss. It manages the full path from a visitor's voice to a usable event report: capture, secure local storage, audio processing, transcription, project-aware analysis, and report generation.
 
-The browser interface is only one control surface. The project itself is the full pipeline behind it: real-time audio capture, durable background processing, Sarvam AI speech-to-text, structured report generation, recovery after interruption, and a local API that connects the components.
+It is designed for exhibitions, demonstrations, showcases, and other multi-project events. The browser console is only a local control surface for the operator; the product itself is the complete feedback-processing workflow behind it.
 
-## What problem does it solve?
+## The problem
 
-Collecting feedback at a live event is usually manual: someone takes notes, tries to associate comments with the right exhibit, and later turns those notes into a report. That process is slow, inconsistent, and makes it easy to lose useful feedback.
+Useful feedback is easy to lose during a live event. Notes are incomplete, recordings are difficult to organise, and turning dozens of comments into a fair summary takes time. It is also easy to confuse feedback about one project with another.
 
-Event Lens makes that workflow reliable from recording through analysis:
+Event Lens provides a simple workflow for collecting feedback without losing the technical traceability behind the final report.
 
-1. Start a recording for one visitor.
-2. Save the recording or discard it immediately if it is not useful.
-3. Let the system normalize the audio and transcribe accepted feedback in the background.
-4. End the session and generate a report that groups validated findings into **working well**, **needs attention**, and **mixed feedback**.
+## From feedback to findings
 
-The report uses the museum project catalog to connect feedback to the correct exhibit. It presents findings rather than copying visitor quotations or visitor IDs into the final Markdown report.
+1. **Capture:** records one visitor response at a time through a local microphone. The operator can save it, retry it, pause, or end collection.
+2. **Preserve and process:** stores accepted raw audio locally, then normalises and checks it in the background.
+3. **Transcribe:** sends valid recordings to Sarvam AI and stores the resulting transcript with its audio record.
+4. **Analyse:** gives completed transcripts and a project catalog to the report model so it can identify supported findings for the projects visitors actually discussed.
+5. **Report:** produces validated Markdown and JSON reports grouped into **working well**, **needs attention**, and **mixed feedback**.
 
-## What the project includes
-
-- **Controlled feedback capture:** records one visitor at a time, lets the operator accept or discard the current recording, and preserves accepted audio as the source record.
-- **Durable processing pipeline:** puts accepted recordings into a persisted FIFO queue, normalizes them into mono 16 kHz WAV files, records audio-quality metadata, and resumes recoverable work after an interruption.
-- **Adaptive transcription:** uses Sarvam AI's direct transcription path for clips up to 30 seconds and its batch-job path for longer recordings.
-- **Evidence-based reporting:** sends completed, unreported transcripts and the museum catalog to the report model, validates the schema and exhibit references it returns, then creates Markdown and JSON reports with an audit manifest.
-- **Operational controls:** exposes the pipeline through a local HTTP API, a browser dashboard, and Windows terminal shortcuts. These are ways to operate the system, not the system's main purpose.
+The final report does not expose raw visitor quotations or visitor identifiers. It focuses on practical findings supported by the collected feedback.
 
 ## How it works
 
-The Python application owns the capture, queue, processing, transcription, storage, and report stages. A local HTTP API exposes their current state and actions. The Next.js application is a thin operator client that calls that API; it does not capture audio or produce reports itself. The API listens only on `127.0.0.1`.
-
 ```mermaid
 flowchart LR
-    A["Visitor feedback"] --> B["Capture and operator decision"]
-    B -->|"accepted"| C["Durable processing queue"]
-    C --> D["Audio normalization"]
-    D --> E["Sarvam AI transcription"]
-    E --> F["Catalog-aware validated report"]
+    A["Spoken visitor feedback"] --> B["Capture"]
+    B -->|"accepted"| C["Durable local queue"]
+    B -->|"not saved"| D["Discard partial recording"]
+    C --> E["Audio normalisation and quality check"]
+    E --> F["Sarvam AI transcription"]
+    F --> G["Project-aware event report"]
 ```
 
-## Technical highlights
+This is one application, not a frontend feature with a separate backend product. Python runs the capture, storage, processing, transcription, and reporting workflow. The Next.js browser interface is intentionally thin: it only gives the operator a simple way to control and observe that local workflow.
 
-- **Real-time capture separated from AI work:** microphone capture writes audio on a dedicated thread while normalization, transcription, and reporting run outside the callback path.
-- **Recoverable and auditable data flow:** accepted raw WAV files are never modified by the worker; queue state, quality metadata, transcripts, model responses, reports, and the report manifest are stored separately.
-- **Right-sized transcription strategy:** short recordings use direct transcription, while longer feedback automatically switches to a Sarvam batch job.
-- **Guardrails around AI output:** report responses are constrained by a JSON schema and validated against the exhibit catalog and contributing visitor IDs before a report is written.
+## Why the design matters
 
-## Quick start
+Event Lens separates real-time recording from slower AI work. Once a recording is saved, the operator can move to the next visitor while transcription continues in the background.
 
-### 1. Install and configure
+- **Durable by default:** accepted WAV files and queue state are stored locally before transcription begins.
+- **Recoverable after interruption:** on restart, pending work is discovered and resumed without retranscribing completed feedback.
+- **Controlled AI output:** the report model receives transcripts plus project context, must return JSON matching a schema, and is checked against known project and visitor IDs before a report is written.
+- **Simple local operation:** a browser console controls the workflow through an API bound only to `127.0.0.1`, so microphone actions are not exposed to the network.
 
-Use Python 3.10 or later, [uv](https://docs.astral.sh/uv/), and Node.js with npm.
+## Technology
+
+- **Feedback pipeline:** Python 3.10+, `sounddevice`, `soundfile`, and NumPy for capture and audio processing
+- **AI processing:** Sarvam AI Saaras v3 for speech-to-text and `sarvam-105b` for structured event reporting
+- **Reliable local records:** WAV and JSON files for source audio, processing state, transcripts, and reports
+- **Operator controls:** Next.js and TypeScript for the local browser console
+
+## Run it locally
+
+### 1. Install dependencies
 
 ```powershell
 uv sync --extra dev
 Copy-Item .env.example .env
-Set-Content .env 'SARVAM_API_KEY=replace-with-your-key'
+# Add your SARVAM_API_KEY to .env
 Set-Location ui
 npm ci
 Set-Location ..
 ```
 
-`SARVAM_API_KEY` is required even for the configuration check because the application constructs the transcription adapter before it evaluates `--check-only`.
+### 2. Start the services
 
-### 2. Start the local services
-
-In one terminal, start the microphone and reporting API:
+In the first terminal, start the local capture and reporting service:
 
 ```powershell
 uv run python -m src.operator_server
 ```
 
-In another terminal, start the operator interface:
+In a second terminal, start the browser console:
 
 ```powershell
 Set-Location ui
 npm run dev
 ```
 
-Open the local URL printed by Next.js, normally `http://localhost:3000`.
+Open the local URL printed by Next.js, usually `http://localhost:3000`.
 
-### 3. Capture feedback and create a report
+### 3. Collect feedback and create a report
 
-Select **Start recording**, then use **Save & next** for usable feedback, **Retry** to discard the current partial recording, or **Stop capture** when the session is over. Once all accepted recordings have finished transcribing, select **Report**.
+1. Select **Start recording**.
+2. Select **Save & next** for useful feedback, **Save & pause** between visitors, or **Retry** to discard the current recording.
+3. Select **Stop capture** when feedback collection is finished.
+4. Wait for accepted recordings to finish transcribing, then select **Report**.
 
-The browser interface shows the recording state, elapsed time, microphone level, and when a report can be generated.
+The latest report is stored at `data/reports/event_feedback_report.md`.
+
+## What this project demonstrates
+
+Event Lens is more than a transcription demo. It demonstrates how to build a reliable local AI workflow around a real operational problem:
+
+- real-time audio capture without blocking on network calls;
+- durable background work and recovery after an interrupted process;
+- provider-backed transcription for English, Tamil, and code-mixed speech;
+- constrained LLM output with schema and evidence validation; and
+- a thin local control interface for operating the workflow.
 
 ## Documentation
 
-- [Operate Event Lens](docs/operations.md) for capture, reporting, and troubleshooting.
-- [Reference](docs/reference.md) for commands, configuration, local API, and generated data.
-- [Architecture](docs/architecture.md) for the processing lifecycle and design trade-offs.
+- [Operator guide](docs/operations.md): run the system during an event.
+- [Architecture](docs/architecture.md): understand the processing and recovery design.
+- [Reference](docs/reference.md): commands, configuration, API routes, and stored data.
 
 ## Verification
 
@@ -100,4 +114,4 @@ Set-Location ui
 npm run build
 ```
 
-The configuration check requires a valid `SARVAM_API_KEY`. The test suite uses a fake transcription adapter and does not call Sarvam.
+The test suite uses a fake transcription adapter and does not send requests to Sarvam AI.

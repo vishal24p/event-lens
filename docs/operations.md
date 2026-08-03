@@ -1,96 +1,121 @@
-# How to operate Event Lens
+# Operator guide
 
-This guide takes an operator from a ready workstation to a generated feedback report.
+Use this guide when running Event Lens during an event.
 
-## Prerequisites
+## Before the event
 
-- Python 3.10 or later and `uv`.
-- Node.js and npm for the browser console.
-- A microphone available to the local machine.
-- A Sarvam API key in the repository's `.env` file:
+- Install Python 3.10+, `uv`, Node.js, and npm.
+- Connect and test the microphone that will be used at the event.
+- Add `SARVAM_API_KEY` to the repository's `.env` file. Keep this file private.
+- Start the services and make one short test recording before visitors arrive.
 
-  ```dotenv
-  SARVAM_API_KEY=your-key
-  ```
-
-The key is used for both transcription and report generation. Keep `.env` private.
-
-## Start an operator session
-
-1. Start the local Python service.
-
-   ```powershell
-   uv run python -m src.operator_server
-   ```
-
-   It starts the capture pipeline without opening a recording and listens at `http://127.0.0.1:8765`.
-
-2. Start the browser console in another terminal.
-
-   ```powershell
-   Set-Location ui
-   npm run dev
-   ```
-
-   Next.js forwards browser requests under `/api` to the local Python service.
-
-3. Open the URL printed by Next.js and select **Start recording**. The status should change to **Recording** and show a visitor ID such as `visitor_0001`.
-
-## Capture visitor feedback
-
-While a recording is active, use either the screen controls or the keyboard:
-
-| Action | Browser key | Terminal key | Result |
-| --- | --- | --- | --- |
-| Save & next | Enter | Enter | Saves the WAV, queues it for processing, advances the visitor ID, and immediately begins the next recording. |
-| Save & pause | None | None | Saves the WAV and returns the console to the ready state. |
-| Retry | Escape | Escape | Deletes the current partial recording and starts the same visitor ID again. |
-| Stop capture | Q | Q | Deletes the active partial recording and lets already accepted recordings finish processing. |
-| Generate report | R | None | Creates a report when capture is stopped and all queued recordings have completed. |
-| Show keyboard help | ? | None | Opens the shortcut reference in the browser. |
-
-Only a saved recording gets a permanent visitor number. Retrying does not consume an ID. If a microphone callback queue fills, the capture process preserves the newest audio blocks rather than blocking the real-time callback.
-
-## Generate a report
-
-Stop capture and wait for the queue to drain. The **Report** control becomes available only when no recording is active, no item is pending or processing, and at least one completed transcript has not already been reported.
-
-Select **Report**, then use **Open report** in the browser. The report deliberately contains findings rather than raw visitor quotations or visitor identifiers.
-
-You can also generate a report from the command line:
-
-```powershell
-uv run python -m src.reporting.cli report --data-root data
-```
-
-The report command accepts only `sarvam-105b`; it exits without sending traffic when `SARVAM_API_KEY` is missing.
-
-## Check configuration before an event
+Check the configuration without opening the microphone:
 
 ```powershell
 uv run event-lens --check-only
 ```
 
-This confirms the resolved Sarvam transcription model and mode. It does not open the microphone or start capture.
+## Start Event Lens
+
+Start the Python service in one terminal:
+
+```powershell
+uv run python -m src.operator_server
+```
+
+Start the browser console in another terminal:
+
+```powershell
+Set-Location ui
+npm run dev
+```
+
+Open the URL printed by Next.js. The console starts in the **Ready** state; it does not record until you select **Start recording**.
+
+## Use an external microphone
+
+Event Lens uses the computer's default microphone when no device is specified. To use an external microphone, first list the audio devices connected to the computer:
+
+```powershell
+uv run python -c "import sounddevice as sd; print(sd.query_devices())"
+```
+
+Choose the number at the start of the external microphone's row. It must have input channels; do not choose a row labelled **Output**. For example, if the external microphone is device `5`, start the Python service with:
+
+```powershell
+uv run python -m src.operator_server --input-device 5
+```
+
+To use the laptop microphone again, omit `--input-device`:
+
+```powershell
+uv run python -m src.operator_server
+```
+
+For a permanent workstation setup, set the chosen number in `config.toml`:
+
+```toml
+[storage]
+input_device = 5
+```
+
+Run a short test recording after connecting or changing a microphone. Confirm that the input-level indicator moves before collecting real feedback.
+
+## Record visitor feedback
+
+Use the controls in the browser. Keyboard shortcuts are optional conveniences.
+
+| Action | Browser shortcut | What happens |
+| --- | --- | --- |
+| Start recording | Enter | Starts recording the next visitor. |
+| Save & next | Enter while recording | Saves the current WAV, queues it for processing, and immediately starts the next recording. |
+| Save & pause | None | Saves the current WAV and returns to the ready state. |
+| Retry | Escape | Discards the current partial recording and starts the same visitor ID again. |
+| Stop capture | Q | Discards the active partial recording. Accepted recordings remain queued and continue processing. |
+| Generate report | R | Creates a report when no recording or queue work remains. |
+| Show help | ? | Opens the browser shortcut reference. |
+
+Only saved recordings receive a permanent visitor ID. Retrying does not use up an ID.
+
+## Generate the event report
+
+1. Select **Stop capture** after the final visitor.
+2. Wait for accepted recordings to finish transcribing.
+3. Select **Report** when it becomes available.
+4. Open the report from the browser, or use the Markdown file at `data/reports/event_feedback_report.md`.
+
+The report includes only transcripts that have not already been reported. It describes supported findings rather than reproducing visitor quotes.
+
+You can also generate the report from a terminal:
+
+```powershell
+uv run python -m src.reporting.cli report --data-root data
+```
 
 ## Troubleshooting
 
-### The browser says the backend is unavailable
+### The browser cannot connect
 
-Start `uv run python -m src.operator_server` and leave it running. The browser is configured to forward `/api` calls to port 8765; a different `--port` value requires matching the frontend rewrite.
+Start `uv run python -m src.operator_server` and keep it running. The browser forwards `/api` requests to port 8765. If you start the server with another port, update the browser rewrite to match it.
 
-### A recording cannot be saved
+### The microphone has no level
 
-An accepted recording must contain written audio. Empty or invalid partial WAV files are removed and the current visitor ID is retained. Check that the correct input device is selected and that its level changes in the browser.
+Confirm that the correct input device is selected in Windows. List devices with:
+
+```powershell
+uv run python -c "import sounddevice as sd; print(sd.query_devices())"
+```
+
+Then restart the service with the number of an **input** device. An output device cannot record feedback.
 
 ### A queue item failed
 
-The operator status shows the last three failures. The original accepted WAV remains available for diagnosis. Near-silent or invalid audio fails during normalization; empty transcription results also fail and do not create transcript files.
+The queue shows failed items and their error messages. The original accepted WAV remains available in `data/audio` for diagnosis. Near-silent or invalid audio fails during normalisation; an empty transcription result also fails and is excluded from reports.
 
-### Report generation is unavailable
+### The Report control is unavailable
 
-Stop capture, wait until pending and in-flight work complete, and confirm a completed transcript has not already been included in a prior report. A report cannot be regenerated from exactly the same transcript set because Event Lens records reported visitor IDs in its manifest.
+Stop capture, then wait until all accepted recordings are finished. A report requires at least one completed, unreported transcript. The same transcript set is not reported twice because Event Lens records included visitor IDs in its manifest.
 
-### Sarvam authentication or network errors occur
+### Sarvam errors appear
 
-Verify `SARVAM_API_KEY` in `.env`, then restart the Python service. Authentication failures are reported for HTTP 401/403; rate limits, server errors, invalid provider responses, and network failures also prevent report creation.
+Confirm `SARVAM_API_KEY` in `.env`, verify the network connection, then restart the Python service. Authentication, rate-limit, server, network, and invalid-response errors prevent the affected operation from completing.

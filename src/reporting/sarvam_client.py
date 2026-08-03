@@ -1,4 +1,4 @@
-"""Sarvam Chat Completions transport for the Phase 2 museum report."""
+"""Sarvam Chat Completions transport for the event report."""
 from __future__ import annotations
 
 import json
