@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phase-2-museum-event-findings-v1",
+  "title": "Phase2MuseumEventFindingsV1",
+  "type": "object",
+  "required": ["museum_overview", "findings", "report_limitations"],
+  "additionalProperties": false,
+  "properties": {
+    "museum_overview": {"type": "string", "minLength": 1},
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["project_id", "outcome", "finding", "supporting_visitor_ids"],
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {"type": "string", "minLength": 1},
+          "outcome": {"type": "string", "enum": ["working_well", "needs_attention", "mixed_feedback"]},
+          "finding": {"type": "string", "minLength": 1},
+          "supporting_visitor_ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        }
+      }
+    },
+    "report_limitations": {"type": "string", "minLength": 1}
+  }
+}

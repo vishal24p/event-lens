@@ -10,28 +10,28 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
+
 from .audio.capture import CaptureSession
 from .config import Config, load_config
 from .controls.keyboard import KeyboardListener
-from .models.transcribe import (
-    HF_DOWNLOAD_COMMANDS,
-    ModelMissingError,
-    TranscriptionAdapter,
-    build_default_adapter,
-    FasterWhisperAdapter,
-)
 from .pipeline.queue import (
     ProcessingQueue,
     QueueItem,
     STATUS_PENDING,
 )
-from .pipeline.worker import ProcessingWorker, WorkerPaths
+from .pipeline.worker_v2 import ProcessingWorker, WorkerPaths
 from .storage.session import (
     SessionPaths,
     VisitorIdAllocator,
     new_session_paths,
     write_session_json,
 )
+from .stt.errors import SarvamApiKeyMissingError
+from .stt.factory import build_default_adapter
+from .stt.types import TranscriptionAdapter
+
+load_dotenv(override=False)
 
 
 class Application:
@@ -87,10 +87,9 @@ class Application:
             paths=paths,
             target_sample_rate=self._config.target_sample_rate,
             target_peak_dbfs=self._config.peak_target_dbfs,
-            model_name=self._config.model_size,
-            device=self._config.device,
-            compute_type=self._config.compute_type,
-            initial_prompt=self._config.initial_prompt,
+            stt_model=self._config.sarvam_model,
+            stt_mode=self._config.sarvam_mode,
+            stt_language_code=self._config.sarvam_language_code,
         )
         self._worker.start()
 
@@ -132,27 +131,22 @@ class Application:
                 f"[capture] accept failed (empty/invalid): {result.path}",
                 flush=True,
             )
-            # Drop the partial; do not enqueue.
             try:
                 result.path.unlink(missing_ok=True)
             except OSError:
                 pass
-            # Do NOT advance visitor number on failure. Reuse current.
             self._start_capture_for_current()
             return
 
-        # Atomic rename partial -> permanent.
         visitor_id = self._allocator.current()
-        permanent = self._capture._sessions_audio_dir / f"{visitor_id}.wav"  # noqa: SLF001
+        permanent = self._capture._sessions_audio_dir / f"{visitor_id}.wav"
         if permanent.exists():
-            # Defensive: never overwrite an accepted WAV.
             print(
                 f"[capture] refusing to overwrite existing {permanent.name}",
                 flush=True,
             )
             return
         os.replace(result.path, permanent)
-        # Enqueue and advance.
         self._queue.enqueue(
             QueueItem(visitor_id=visitor_id, raw_audio_path=permanent)
         )
@@ -170,14 +164,12 @@ class Application:
             print(f"[capture] discard error: {result.error}", flush=True)
         else:
             print("[capture] discarded current partial", flush=True)
-        # Visitor number stays the same.
         self._start_capture_for_current()
 
     def _handle_stop_capture(self) -> None:
         if self._stop_capture.is_set():
             return
         self._stop_capture.set()
-        # Close the current partial without accepting; it will be deleted.
         if self._capture is not None and self._capture.is_running:
             result = self._capture.finalize_and_discard()
             if result.error:
@@ -191,18 +183,14 @@ class Application:
             while True:
                 self._render_status()
                 if self._stop_capture.is_set() and not self._queue.has_open_work():
-                    # Capture stopped and queue fully drained.
                     break
                 time.sleep(0.5)
         except KeyboardInterrupt:
-            # Treat Ctrl+C like Q: stop capture, drain queue, exit cleanly.
             self._handle_stop_capture()
 
     def _render_status(self) -> None:
         if self._shutting_down.is_set():
             return
-        # Move cursor home + clear screen-from-cursor-down so the panel
-        # refreshes in place without flicker. No full clear -> no blink.
         sys.stdout.write("\x1b[H\x1b[J")
         self._print_banner()
         counts = self._queue.counts()
@@ -222,8 +210,6 @@ class Application:
             f"Completed: {completed}\n"
             f"Failed: {failed}\n"
         )
-        # Show up to 3 most recent failures with reasons so the operator
-        # knows whether to retry or move on.
         failed_items = self._queue.failed_items()
         if failed_items:
             print("Recent failures:")
@@ -272,18 +258,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         help="Path to TOML config file. Default: ./config.toml",
     )
     p.add_argument(
-        "--model-path",
-        type=Path,
-        default=None,
-        help="Override [model].model_path from config.",
-    )
-    p.add_argument(
-        "--model-size",
-        type=str,
-        default=None,
-        help="Override [model].model_size from config.",
-    )
-    p.add_argument(
         "--sessions-root",
         type=Path,
         default=None,
@@ -293,7 +267,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument(
         "--check-only",
         action="store_true",
-        help="Validate configuration and model, then exit.",
+        help="Validate configuration, then exit.",
     )
     return p.parse_args(argv)
 
@@ -301,10 +275,6 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: Optional[list[str]] = None) -> int:
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     cli_overrides: dict = {}
-    if args.model_path is not None:
-        cli_overrides["model_path"] = args.model_path
-    if args.model_size is not None:
-        cli_overrides["model_size"] = args.model_size
     if args.sessions_root is not None:
         cli_overrides["sessions_root"] = args.sessions_root
     if args.input_device is not None:
@@ -312,24 +282,21 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     config = load_config(config_path=args.config, cli_overrides=cli_overrides)
     try:
-        adapter = build_default_adapter(config.model_path)
-    except ModelMissingError as e:
+        adapter = build_default_adapter(
+            api_key=config.sarvam_api_key,
+            model=config.sarvam_model,
+            mode=config.sarvam_mode,
+            language_code=config.sarvam_language_code,
+        )
+    except SarvamApiKeyMissingError as e:
         print(str(e), file=sys.stderr)
         return 2
-    except Exception as e:
-        from .models.transcribe import CudaUnavailableError
-
-        if isinstance(e, CudaUnavailableError):
-            print(str(e), file=sys.stderr)
-            return 3
-        raise
 
     if args.check_only:
-        print(f"[check] model_path = {config.model_path}")
-        print(f"[check] model_size = {config.model_size}")
-        print(f"[check] device     = {config.device}")
-        print(f"[check] compute    = {config.compute_type}")
-        print("[check] configuration and model OK")
+        print(f"[check] stt_provider = sarvam")
+        print(f"[check] stt_model    = {config.sarvam_model}")
+        print(f"[check] stt_mode     = {config.sarvam_mode}")
+        print("[check] configuration OK")
         return 0
 
     app = Application(config=config, adapter=adapter)

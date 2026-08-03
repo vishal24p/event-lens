@@ -1,4 +1,4 @@
-"""Single sequential worker.
+"""Single sequential worker — STT-adapter-agnostic.
 
 Normalize -> transcribe -> save transcript. One item at a time.
 Failures are isolated per item; the raw accepted WAV is never deleted by the worker.
@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Optional
 
 from ..audio.normalize import normalize_visitor_recording
-from ..models.transcribe import TranscriptionAdapter, TranscriptionResult
 from ..pipeline.queue import (
     ProcessingQueue,
     QueueItem,
@@ -22,7 +21,7 @@ from ..pipeline.queue import (
     STATUS_PENDING,
     STATUS_TRANSCRIBING,
 )
-from ..storage.session import SessionPaths
+from ..stt.types import TranscriptionAdapter, TranscriptionResult
 
 
 @dataclass
@@ -41,9 +40,9 @@ class ProcessingWorker:
         paths: WorkerPaths,
         target_sample_rate: int,
         target_peak_dbfs: float,
-        model_name: str,
-        device: str,
-        compute_type: str,
+        stt_model: str = "saaras:v3",
+        stt_mode: str = "codemix",
+        stt_language_code: str = "unknown",
         initial_prompt: str = "",
     ) -> None:
         self._queue = queue
@@ -51,9 +50,9 @@ class ProcessingWorker:
         self._paths = paths
         self._target_sr = target_sample_rate
         self._target_peak = target_peak_dbfs
-        self._model_name = model_name
-        self._device = device
-        self._compute_type = compute_type
+        self._stt_model = stt_model
+        self._stt_mode = stt_mode
+        self._stt_language_code = stt_language_code
         self._initial_prompt = initial_prompt
         self._thread: Optional[threading.Thread] = None
         self._wake = threading.Event()
@@ -81,7 +80,6 @@ class ProcessingWorker:
         while not self._stop.is_set():
             item = self._queue.pop_pending()
             if item is None:
-                # Wait until nudged (new item enqueued) or told to stop.
                 self._wake.wait(timeout=0.5)
                 self._wake.clear()
                 continue
@@ -102,7 +100,6 @@ class ProcessingWorker:
                 target_peak_dbfs=self._target_peak,
             )
             if report.status not in ("valid",):
-                # Mark failed but preserve the raw WAV and the normalized output if any.
                 self._queue.set_status(
                     vid, STATUS_FAILED, error=f"normalization status={report.status}"
                 )
@@ -115,7 +112,6 @@ class ProcessingWorker:
             self._save_transcript(vid, item, normalized_path, result)
             self._queue.set_status(vid, STATUS_COMPLETED)
         except Exception as e:
-            # GPU OOM, bad wav, anything. Preserve raw WAV. Mark item failed.
             self._queue.set_status(vid, STATUS_FAILED, error=str(e))
 
     def _save_transcript(
@@ -133,9 +129,10 @@ class ProcessingWorker:
             "normalized_audio_file": str(
                 Path("..") / "normalized" / f"{vid}.wav"
             ),
-            "model": self._model_name,
-            "device": self._device,
-            "compute_type": self._compute_type,
+            "stt_provider": "sarvam",
+            "stt_model": self._stt_model,
+            "stt_mode": self._stt_mode,
+            "stt_language_code": self._stt_language_code,
             "language": result.language,
             "duration_seconds": self._read_duration(normalized_path),
             "text": result.text,

@@ -12,7 +12,7 @@ from src.pipeline.queue import (
     STATUS_COMPLETED,
     STATUS_FAILED,
 )
-from src.pipeline.worker import ProcessingWorker, WorkerPaths
+from src.pipeline.worker_v2 import ProcessingWorker, WorkerPaths
 from src.storage.session import new_session_paths
 
 from tests.conftest import FakeAdapter
@@ -50,9 +50,9 @@ def test_drain_processes_all_accepted(tmp_path):
         ),
         target_sample_rate=16000,
         target_peak_dbfs=-3.0,
-        model_name="Systran/faster-whisper-small",
-        device="cuda",
-        compute_type="float16",
+        stt_model="saaras:v3",
+        stt_mode="codemix",
+        stt_language_code="unknown",
     )
     worker.start()
     # Drive with nudges until drained.
@@ -90,9 +90,9 @@ def test_worker_passes_initial_prompt_to_adapter(tmp_path):
         ),
         target_sample_rate=16000,
         target_peak_dbfs=-3.0,
-        model_name="medium",
-        device="cuda",
-        compute_type="float16",
+        stt_model="saaras:v3",
+        stt_mode="codemix",
+        stt_language_code="unknown",
         initial_prompt="Tamil and English mixed",
     )
     # Capture prompt by wrapping the adapter.
@@ -132,9 +132,9 @@ def test_failure_does_not_destroy_queue(tmp_path):
         ),
         target_sample_rate=16000,
         target_peak_dbfs=-3.0,
-        model_name="Systran/faster-whisper-small",
-        device="cuda",
-        compute_type="float16",
+        stt_model="saaras:v3",
+        stt_mode="codemix",
+        stt_language_code="unknown",
     )
     worker.start()
     import time

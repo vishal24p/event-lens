@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
-from src.models.transcribe import (
+from src.stt.types import (
     Segment,
     TranscriptionAdapter,
     TranscriptionResult,

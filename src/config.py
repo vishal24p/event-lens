@@ -20,8 +20,6 @@ from typing import Any, Dict
 
 # Env var -> Config field name. Add new entries here when extending Config.
 ENV_VARS: Dict[str, str] = {
-    "MODEL_PATH": "model_path",
-    "MODEL_SIZE": "model_size",
     "SESSIONS_ROOT": "sessions_root",
     "INPUT_DEVICE": "input_device",
     "TARGET_SAMPLE_RATE": "target_sample_rate",
@@ -31,20 +29,18 @@ ENV_VARS: Dict[str, str] = {
     "PEAK_TARGET_DBFS": "peak_target_dbfs",
     "SILENCE_THRESHOLD_DBFS": "silence_threshold_dbfs",
     "MIN_DURATION_SECONDS": "min_duration_seconds",
-    "DEVICE": "device",
-    "COMPUTE_TYPE": "compute_type",
-    "INITIAL_PROMPT": "initial_prompt",
+    "SARVAM_API_KEY": "sarvam_api_key",
+    # Legacy Phase 1 name; preserve existing .env files. The explicit STT
+    # name appears afterwards, so it takes precedence when both are set.
+    "SARVAM_MODEL": "sarvam_model",
+    "SARVAM_STT_MODEL": "sarvam_model",
+    "SARVAM_MODE": "sarvam_mode",
+    "SARVAM_LANGUAGE_CODE": "sarvam_language_code",
 }
 
 
 @dataclass(frozen=True)
 class Config:
-    # Path to the pre-downloaded faster-whisper model directory.
-    model_path: Path
-    # Logical model name (e.g. "small", "medium", "large-v3"). Used for the
-    # transcript metadata only; the loader always uses model_path on disk.
-    model_size: str
-
     # Root directory under which session folders are created.
     sessions_root: Path
 
@@ -73,18 +69,13 @@ class Config:
     # Minimum recording duration in seconds; below this, recording is rejected.
     min_duration_seconds: float = 0.5
 
-    # Inference device. Always "cuda" for Phase 1; "cpu" is explicitly disabled
-    # in transcribe.py but kept here for completeness of the config schema.
-    device: str = "cuda"
-
-    # CTranslate2 compute type. "float16" is the standard choice on consumer
-    # NVIDIA GPUs. Other valid values: "int8", "int8_float16", "float32".
-    compute_type: str = "float16"
-
-    # Optional initial prompt passed to Whisper. Useful for code-switched
-    # audio (e.g. "Tamil and English") to bias the decoder toward the
-    # expected script and vocabulary. Leave empty for default behaviour.
-    initial_prompt: str = ""
+    # Sarvam AI speech-to-text settings (saaras:v3).
+    sarvam_api_key: str = ""
+    sarvam_model: str = "saaras:v3"
+    # transcribe | translate | verbatim | translit | codemix
+    sarvam_mode: str = "codemix"
+    # Use "unknown" for automatic language detection.
+    sarvam_language_code: str = "unknown"
 
 
 def _load_toml(path: Path) -> Dict[str, Any]:
@@ -127,8 +118,6 @@ def _coerce(field_name: str, value: Any) -> Any:
 
 def default_config() -> Config:
     return Config(
-        model_path=Path("models") / "faster-whisper-medium",
-        model_size="medium",
         sessions_root=Path("sessions"),
         input_device=None,
     )
@@ -152,10 +141,17 @@ def load_config(
 
 def _apply_overlay(cfg: Config, data: Dict[str, Any]) -> Config:
     valid = {f.name for f in fields(Config)}
-    kwargs: Dict[str, Any] = {}
+    flat: Dict[str, Any] = {}
     for key, value in data.items():
+        if isinstance(value, dict):
+            for sub_key, sub_value in value.items():
+                flat[sub_key] = sub_value
+        else:
+            flat[key] = value
+    kwargs: Dict[str, Any] = {}
+    for key, value in flat.items():
         if key in valid:
-            if key in ("model_path", "sessions_root"):
+            if key == "sessions_root":
                 kwargs[key] = Path(str(value))
             else:
                 kwargs[key] = _coerce(key, value)

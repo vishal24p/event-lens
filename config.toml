@@ -2,14 +2,6 @@
 # Edit values here. Anything here can be overridden by env vars
 # (see ENV_VARS in src/config.py) or CLI flags.
 
-[model]
-# Local path to the pre-downloaded faster-whisper model directory.
-# Default: models/faster-whisper-medium
-model_path = "models/faster-whisper-medium"
-# Logical size name. Recorded in transcripts for traceability. The loader
-# always reads from model_path, not from this string.
-model_size = "medium"
-
 [sessions]
 sessions_root = "sessions"
 # Leave input_device commented out to use the system default input device.
@@ -24,10 +16,8 @@ peak_target_dbfs = -3.0
 silence_threshold_dbfs = -50.0
 min_duration_seconds = 0.5
 
-[whisper]
-device = "cuda"
-compute_type = "float16"
-# Optional. Bias the decoder toward the expected script and vocabulary.
-# Useful for code-switched audio (e.g. Tamil + English in one clip).
-# Leave empty for default behaviour.
-initial_prompt = "Tamil and English mixed"
+[sarvam]
+# API key is read from SARVAM_API_KEY in the environment or .env file.
+# model = "saaras:v3"
+# mode = "codemix"
+# language_code = "unknown"

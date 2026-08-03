@@ -12,13 +12,6 @@ import pytest
 import soundfile as sf
 
 from src.audio.normalize import normalize_visitor_recording
-from src.models.transcribe import (
-    CudaUnavailableError,
-    ModelMissingError,
-    TranscriptionAdapter,
-    TranscriptionResult,
-    Segment,
-)
 from src.pipeline.queue import (
     ProcessingQueue,
     QueueItem,
@@ -28,7 +21,11 @@ from src.pipeline.queue import (
     STATUS_PENDING,
     STATUS_TRANSCRIBING,
 )
-from src.pipeline.worker import ProcessingWorker, WorkerPaths
+from src.pipeline.worker_v2 import ProcessingWorker, WorkerPaths
+from src.stt.types import (
+    TranscriptionAdapter,
+    TranscriptionResult,
+)
 from src.storage.session import (
     SessionPaths,
     VisitorIdAllocator,
@@ -98,9 +95,9 @@ def test_worker_processes_one_at_a_time(tmp_path):
         ),
         target_sample_rate=16000,
         target_peak_dbfs=-3.0,
-        model_name="Systran/faster-whisper-small",
-        device="cuda",
-        compute_type="float16",
+        stt_model="saaras:v3",
+        stt_mode="codemix",
+        stt_language_code="unknown",
     )
     # Do NOT call worker.start(): the test calls _process_one directly in the
     # main thread to assert deterministic FIFO ordering.
@@ -141,9 +138,9 @@ def test_worker_failure_preserves_raw_wav(tmp_path):
         ),
         target_sample_rate=16000,
         target_peak_dbfs=-3.0,
-        model_name="Systran/faster-whisper-small",
-        device="cuda",
-        compute_type="float16",
+        stt_model="saaras:v3",
+        stt_mode="codemix",
+        stt_language_code="unknown",
     )
     item = q.pop_pending()
     worker._process_one(item)  # noqa: SLF001

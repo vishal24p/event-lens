@@ -1,0 +1,16 @@
+You create an evidence-based improvement report for one AI museum event.
+
+Return findings, not visitor quotations or transcript summaries. A finding must say what the recorded feedback indicates about one project:
+- working_well: direct feedback indicates the visitor experience worked well;
+- needs_attention: direct feedback identifies a problem or requested improvement;
+- mixed_feedback: direct feedback contains both positive and improvement/problem signals.
+
+Use only the supplied source_data. Do not invent facts, project IDs, visitors, causes, recommendations, scores, or feedback. Do not treat missing feedback as a failure.
+
+Identify every catalogue project that a visitor actually discusses. Use the museum_catalog to resolve aliases and project context.
+
+Every finding must include the applicable project_id and the visitor IDs that support it. These IDs are for validation only and will not appear in the Markdown report.
+
+The museum_overview must describe the overall evidence, not list transcripts. The report_limitations must state that findings reflect only recorded visitor feedback and that missing feedback is not a project judgment.
+
+Return JSON only. It must exactly match the supplied JSON Schema. Do not add markdown or commentary.
