@@ -2,82 +2,72 @@
 
 ## Goal
 
-Connect the operator website to the locally attached microphone and the existing Python capture pipeline so every visible value and action reflects persisted backend state.
+Connect the browser operator console to the existing Python capture pipeline so it shows and controls only real microphone, session, processing, transcript, and report data.
 
 ## Constraints
 
-- The Python process owns the microphone. The browser never requests or streams microphone audio.
-- The UI and Python process run on the same laptop; the control server binds only to `127.0.0.1`.
-- Preserve the operator controls: Save & next, Stop & retry, Stop session, and Start new session.
-- Reports are manually generated from one or more operator-selected sessions.
-- A report is an immutable snapshot. Generating again after a session receives more transcripts creates a new snapshot containing all completed transcripts selected at that later time.
-- No simulated timer, waveform, visitors, queue state, history, or report values remain in the UI.
+- The microphone is attached to the same laptop as the Python process.
+- Python remains the only component that accesses the microphone and writes audio.
+- The browser never captures, uploads, or receives raw audio.
+- Keep the existing operator actions: Save & next, Stop & retry, Stop session, and Start new session.
+- Report generation is manual. An operator selects one or more real sessions and explicitly generates a saved report snapshot.
+- No simulated timer, waveform, session history, visitor count, or report data may remain in the UI.
+- Reuse the existing capture, queue, storage, transcription, and reporting pipeline. Do not add a second processing path.
+
+## Existing Architecture
+
+`Application` creates a session directory, starts `CaptureSession` for the current visitor, and starts one `ProcessingWorker`. `CaptureSession` reads the attached microphone through `sounddevice`, writes blocks to a partial WAV, then either deletes it on retry or moves it to `audio/visitor_NNNN.wav` on save. The queue and worker produce normalized WAV, quality JSON, and transcript JSON. `generate_event_report` reads completed transcript JSON files and writes a structured JSON and Markdown report.
 
 ## Architecture
 
-The existing `Application` remains the owner of `CaptureSession`, the processing queue, session storage, and transcription worker. A small Python HTTP server is started alongside it and provides local JSON endpoints. It uses the standard library, avoiding a second backend framework.
+Add a localhost-only Python HTTP API that owns one long-lived `Application` instance. The API invokes public lifecycle methods on that instance and returns a thread-safe status snapshot. The Next.js browser app polls the status endpoint and sends action requests; it contains no capture/session/report state beyond request loading and error display.
 
-The Next.js UI calls the local API for commands and polls the status endpoint while it is open. The status response is the source of truth for the capture card. The browser renders an activity meter from backend peak samples; it never receives raw PCM or a WAV stream.
+The backend publishes a small numeric input level calculated in the existing audio callback. The browser converts those real samples into the existing waveform presentation. No PCM or WAV data crosses the HTTP boundary.
 
-## Audio and Capture Flow
+## API
 
-1. `POST /api/sessions` creates a session directory and starts the existing sounddevice input stream for `visitor_0001`.
-2. The sounddevice callback copies each block to the existing writer queue and records its latest peak level under the capture lock.
-3. `GET /api/status` returns the active visitor, elapsed duration, capture state, processing counts, and latest peak level.
-4. `POST /api/capture/accept` finalizes the partial WAV, persists it as `visitor_NNNN.wav`, enqueues it, and begins the next visitor.
-5. `POST /api/capture/discard` deletes the partial WAV and starts a fresh capture for the same visitor.
-6. `POST /api/capture/stop` stops microphone capture, discards only the current partial WAV, and leaves accepted items to drain through transcription.
+### Capture
 
-## API Contract
+- `GET /api/status` returns the active session ID, capture state, current visitor ID, elapsed seconds, real input level, and queue item snapshots.
+- `POST /api/capture/start` creates a new session and starts microphone capture only when no capture session is active.
+- `POST /api/capture/accept` finalizes the current take, persists the WAV, enqueues processing, and begins the next visitor.
+- `POST /api/capture/discard` deletes the current partial take and restarts the same visitor.
+- `POST /api/capture/stop` stops capture, discards the current partial take, and leaves accepted queue items to drain.
 
-All responses use JSON. Mutating routes return the current status payload. Invalid transitions return HTTP 409 with `{ "error": "..." }`; malformed requests return HTTP 400.
+Every state-changing endpoint returns the current status. Invalid state transitions return a clear 409 response; unexpected capture or processing errors return a 500 response without fabricating a replacement state.
 
-- `GET /api/status`
-  - Returns `capture_state` (`idle`, `recording`, `stopped`, `draining`), `session_id`, `started_at`, `current_visitor_id`, `elapsed_seconds`, `meter_peak`, `queue`, and `accepted_count`.
-- `POST /api/sessions`
-  - Starts a new session. Returns 409 while an existing session is recording or draining.
-- `POST /api/capture/accept`
-  - Saves the current take and starts the next visitor. Returns 409 unless recording.
-- `POST /api/capture/discard`
-  - Discards and restarts the current take. Returns 409 unless recording.
-- `POST /api/capture/stop`
-  - Stops capture safely. Repeated calls return the stopped/draining status without changing saved audio.
-- `GET /api/sessions`
-  - Lists real session directories with start time, capture state when current, accepted audio count, completed transcript count, and report snapshots.
-- `POST /api/reports`
-  - Accepts `{ "session_ids": ["session_..."] }`. Reads completed transcript files from every selected session and creates a new immutable report snapshot under `reports/report_<UTC timestamp>/`.
-- `GET /api/reports/<report_id>`
-  - Returns the structured saved report for display.
+### Sessions and reports
 
-## Manual Report Snapshots
+- `GET /api/sessions` reads real session directories and returns session metadata, accepted audio count, completed transcript count, and active/finished state.
+- `POST /api/reports` accepts selected session IDs and manually generates a report snapshot from completed transcripts in all selected sessions.
+- `GET /api/reports/{report_id}` returns a saved report snapshot.
 
-The existing single-session report generator remains available for its CLI. A new multi-session entry point collects completed transcript JSON files from the selected session roots, calls Sarvam once with the combined evidence, and writes:
+Multi-session report generation uses the current completed transcript set from every selected session. A report generated mid-session is immutable: it contains only transcripts complete at generation time. When the operator generates another report after further capture, the backend reads the same selected sessions again and includes the new transcripts as well. Reports are timestamped snapshots; generating a later report never rewrites an earlier one.
+
+## Data flow
 
 ```text
-reports/
-  report_YYYY-MM-DD_HH-MM-SS/
-    report.json
-    report.md
-    source.json
+Attached microphone
+  -> CaptureSession callback
+  -> partial WAV + current input-level snapshot
+  -> save: immutable raw WAV
+  -> ProcessingQueue
+  -> normalized WAV + quality JSON + transcript JSON
+  -> manual selected-session report snapshot
+  -> browser status/session/report views
 ```
 
-`source.json` records the selected session IDs, transcript visitor IDs, and generation timestamp. An in-progress session contributes only completed transcripts. A later manual report for that same session reads all currently completed transcripts again, including those produced after the earlier snapshot.
+## Browser changes
 
-## UI Behavior
+- Replace the local React timer, counters, visitor IDs, session archive, and generated waveform with API responses.
+- Keep keyboard shortcuts, but route them to the same API actions as the buttons.
+- Disable buttons while an action request is in flight; show the backend's returned state or error.
+- Populate the session/report UI only from `/api/sessions` and report endpoints.
 
-- The capture page fetches initial status and polls it every 250 ms. There is no local elapsed-time interval or local visitor/session archive.
-- Buttons and keyboard shortcuts call their matching API routes, then render the returned status. Disabled states come from `capture_state`.
-- The waveform uses the returned peak samples. An idle or stopped backend produces an idle waveform.
-- The report screen loads `/api/sessions`, lets the operator select real sessions, calls `/api/reports`, and displays the saved report returned by the API. Print/download use the returned saved report, not a browser-created summary.
+## Testing
 
-## Error Handling
-
-- Capture errors, worker failures, and report-generation failures are exposed as backend messages and shown in the UI without inventing a success state.
-- A report cannot be generated for an empty selection or for selected sessions with no completed transcripts.
-- The UI shows an unavailable-backend state when `GET /api/status` fails; capture actions remain disabled until the local Python process is reachable.
-
-## Verification
-
-- Python API tests cover lifecycle transitions, status serialization, report selection validation, report snapshot inputs, and invalid-action responses using fake capture/transcription dependencies.
-- Existing report tests continue to cover the single-session CLI path.
-- The Next.js production build verifies the UI compiles against the new API contract.
+- Unit-test the new lifecycle methods and status snapshots using the existing fake transcription adapter; no microphone or Sarvam request is required.
+- Test API action state transitions, including an invalid transition.
+- Test input-level calculation from a supplied audio block.
+- Test multi-session transcript collection and report snapshot paths, including a second report generated after additional transcripts appear.
+- Build the Next.js app and verify it contains no `Source: simulated`, generated timer, generated session archive, or synthetic waveform implementation.
