@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from src.reporting.event_report import EventReportExistsError, generate_event_report
+from src.reporting.event_report import EventReportError, generate_event_report
 from src.reporting.sarvam_client import SarvamResponse
 
 
@@ -44,7 +44,7 @@ def test_phase_two_report_uses_transcripts_and_writes_private_markdown(tmp_path:
         return SarvamResponse(body=narrative, content=json.dumps(narrative), actual_model="mock-model", raw_text="{}")
 
     outcome = generate_event_report(
-        session_root=tmp_path,
+        data_root=tmp_path,
         catalog=CATALOG,
         system_prompt="PROMPT",
         response_schema={"type": "object"},
@@ -60,9 +60,9 @@ def test_phase_two_report_uses_transcripts_and_writes_private_markdown(tmp_path:
     assert transcript not in markdown
     assert "visitor_0001" not in markdown
 
-    with pytest.raises(EventReportExistsError):
+    with pytest.raises(EventReportError, match="no unreported"):
         generate_event_report(
-            session_root=tmp_path,
+            data_root=tmp_path,
             catalog=CATALOG,
             system_prompt="PROMPT",
             response_schema={"type": "object"},

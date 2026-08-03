@@ -26,11 +26,7 @@ from src.stt.types import (
     TranscriptionAdapter,
     TranscriptionResult,
 )
-from src.storage.session import (
-    SessionPaths,
-    VisitorIdAllocator,
-    new_session_paths,
-)
+from src.storage.data import DataPaths, VisitorIdAllocator, data_paths
 
 
 # ---- queue invariants ---------------------------------------------------
@@ -58,6 +54,13 @@ def test_queue_enqueue_rejects_non_pending():
         q.enqueue(item)
 
 
+def test_failed_queue_item_does_not_keep_capture_open():
+    q = ProcessingQueue()
+    q.enqueue(QueueItem(visitor_id="visitor_0001", raw_audio_path=Path("a.wav")))
+    q.set_status("visitor_0001", STATUS_FAILED, error="transcription failed")
+    assert not q.has_open_work()
+
+
 # ---- worker with fake adapter ------------------------------------------
 
 
@@ -71,8 +74,7 @@ def _write_wav(path: Path, seconds: float = 1.0, sr: int = 16000) -> None:
 def test_worker_processes_one_at_a_time(tmp_path):
     from tests.conftest import FakeAdapter
 
-    sessions_root = tmp_path
-    paths: SessionPaths = new_session_paths(sessions_root)
+    paths: DataPaths = data_paths(tmp_path)
     for i in range(1, 4):
         _write_wav(paths.audio / f"visitor_000{i}.wav", seconds=0.6)
 
@@ -120,7 +122,7 @@ def test_worker_processes_one_at_a_time(tmp_path):
 def test_worker_failure_preserves_raw_wav(tmp_path):
     from tests.conftest import FakeAdapter
 
-    paths = new_session_paths(tmp_path)
+    paths = data_paths(tmp_path)
     raw = paths.audio / "visitor_0001.wav"
     _write_wav(raw, seconds=0.5)
     before_bytes = raw.read_bytes()
@@ -196,3 +198,22 @@ def test_normalize_preserves_raw_and_writes_separate_outputs(tmp_path):
     info = sf.info(str(norm))
     assert info.samplerate == 16000
     assert info.channels == 1
+
+
+def test_durable_queue_recovers_interrupted_work_without_retranscribing_completed(tmp_path):
+    paths = data_paths(tmp_path)
+    queue = ProcessingQueue(state_path=paths.queue)
+    _write_wav(paths.audio / "visitor_0001.wav", seconds=0.6)
+    _write_wav(paths.audio / "visitor_0002.wav", seconds=0.6)
+    (paths.transcripts / "visitor_0001.json").write_text(
+        '{"visitor_id": "visitor_0001", "text": "done"}', encoding="utf-8"
+    )
+    queue.enqueue(QueueItem(visitor_id="visitor_0001", raw_audio_path=paths.audio / "visitor_0001.wav"))
+    queue.enqueue(QueueItem(visitor_id="visitor_0002", raw_audio_path=paths.audio / "visitor_0002.wav"))
+    queue.set_status("visitor_0001", STATUS_TRANSCRIBING)
+    queue.set_status("visitor_0002", STATUS_TRANSCRIBING)
+
+    recovered = ProcessingQueue(state_path=paths.queue)
+
+    assert recovered.counts()[STATUS_COMPLETED] == 1
+    assert recovered.pop_pending().visitor_id == "visitor_0002"

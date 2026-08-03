@@ -2,8 +2,8 @@
 # Edit values here. Anything here can be overridden by env vars
 # (see ENV_VARS in src/config.py) or CLI flags.
 
-[sessions]
-sessions_root = "sessions"
+[storage]
+data_root = "data"
 # Leave input_device commented out to use the system default input device.
 # input_device = 0
 

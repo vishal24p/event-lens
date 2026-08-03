@@ -7,6 +7,8 @@ __pycache__/
 .venv/
 venv/
 env/
+ui/node_modules/
+ui/.next/
 build/
 dist/
 *.egg-info/
@@ -22,7 +24,8 @@ models/
 *.bin
 *.safetensors
 
-# Sessions — runtime output, large
+# Runtime capture output, large
+data/
 sessions/
 logs/
 *.log

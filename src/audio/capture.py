@@ -58,7 +58,7 @@ class CaptureSession:
         channels: int,
         block_size: int,
         queue_max_blocks: int,
-        sessions_audio_dir: Path,
+        audio_dir: Path,
         peak_target_dbfs: float,
     ) -> None:
         self._input_device = input_device
@@ -68,7 +68,7 @@ class CaptureSession:
         self._audio_q: "queue.Queue[np.ndarray | _Stop]" = queue.Queue(
             maxsize=queue_max_blocks
         )
-        self._sessions_audio_dir = sessions_audio_dir
+        self._audio_dir = audio_dir
         self._peak_target_dbfs = peak_target_dbfs
 
         self._writer_thread: Optional[threading.Thread] = None
@@ -77,6 +77,8 @@ class CaptureSession:
         self._current_visitor: Optional[str] = None
         self._lock = threading.Lock()
         self._is_running = False
+        self._input_level = 0.0
+        self._started_at: Optional[float] = None
 
     # ---- lifecycle -----------------------------------------------------
 
@@ -84,8 +86,8 @@ class CaptureSession:
         with self._lock:
             if self._is_running:
                 raise RuntimeError("CaptureSession already running")
-            self._sessions_audio_dir.mkdir(parents=True, exist_ok=True)
-            partial = self._sessions_audio_dir / f"{visitor_id}.partial.wav"
+            self._audio_dir.mkdir(parents=True, exist_ok=True)
+            partial = self._audio_dir / f"{visitor_id}.partial.wav"
             if partial.exists():
                 # Defensive: stale partial from a crash. Discard before opening.
                 partial.unlink()
@@ -93,6 +95,7 @@ class CaptureSession:
             sample_rate = self._open_stream()
             self._current_path = partial
             self._current_visitor = visitor_id
+            self._started_at = time.monotonic()
             self._writer_thread = threading.Thread(
                 target=self._writer_loop,
                 name=f"writer-{visitor_id}",
@@ -145,6 +148,7 @@ class CaptureSession:
         if status:
             # Surface overruns/underruns via stderr; do not block the callback.
             print(f"[capture] stream status: {status}", flush=True)
+        self._input_level = float(np.sqrt(np.mean(np.square(indata))))
         # Copy out of the PortAudio buffer; the callback must not retain a view.
         block = np.array(indata, copy=True)
         try:
@@ -241,7 +245,8 @@ class CaptureSession:
         self._is_running = False
         self._current_path = None
         self._current_visitor = None
-        # Drain the queue so the next session starts clean.
+        self._started_at = None
+        # Drain the queue so the next recording starts clean.
         try:
             while True:
                 self._audio_q.get_nowait()
@@ -258,3 +263,12 @@ class CaptureSession:
     @property
     def current_visitor(self) -> Optional[str]:
         return self._current_visitor
+
+    @property
+    def input_level(self) -> float:
+        """Current RMS input level (0.0 to 1.0) for the local operator UI."""
+        return self._input_level
+
+    @property
+    def elapsed_seconds(self) -> int:
+        return int(time.monotonic() - self._started_at) if self._started_at else 0

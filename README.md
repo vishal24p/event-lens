@@ -9,13 +9,25 @@ Single visitor at a time. Manual accept / discard / stop.
 - Operator keys: `ENTER` accept, `ESC` discard current, `Q` stop capture.
 - Sequential processing queue. One transcription request at a time.
 - Sarvam STT model: `saaras:v3` by default.
-- No diarization, no streaming, no frontend, no SQLite.
+- No diarization, no streaming, no SQLite.
 
 ## 1. Install
 
 ```bash
 uv sync
 ```
+
+## Operator UI
+
+The operator console is a separate browser-first Next.js app in `ui/`, built with HeroUI primitives and a 21st.dev-style copy-in composition while the backend remains Python-owned:
+
+```bash
+cd ui
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The current screen uses mock state for the three capture actions; backend API wiring comes next.
 
 ## 2. Configure Sarvam AI
 
@@ -36,7 +48,7 @@ uv run feedback-llm --check-only
 
 Prints the effective Sarvam transcription model and mode.
 
-## 4. Run a session
+## 4. Run capture
 
 ```bash
 uv run feedback-llm
@@ -46,7 +58,7 @@ Console:
 
 ```text
 === FEEDBACK CAPTURE SYSTEM ===
-Session: session_2026-07-22_14-30-00
+Data: data/
 
 RECORDING: Visitor 0001
 ...
@@ -59,13 +71,13 @@ Q      Stop capture safely
 ## Output layout
 
 ```text
-sessions/
-  session_YYYY-MM-DD_HH-MM-SS/
-    audio/        visitor_0001.wav, visitor_0002.wav, ...        (immutable)
-    normalized/   visitor_0001.wav, visitor_0002.wav, ...
-    quality/      visitor_0001.json, visitor_0002.json, ...
-    transcripts/  visitor_0001.json, visitor_0002.json, ...
-    session.json
+data/
+  audio/        visitor_0001.wav, visitor_0002.wav, ...        (immutable)
+  normalized/   visitor_0001.wav, visitor_0002.wav, ...
+  quality/      visitor_0001.json, visitor_0002.json, ...
+  transcripts/  visitor_0001.json, visitor_0002.json, ...
+  queue.json    durable pending/transcribing/completed status
+  reports/
 ```
 
 `Q` stops new capture, discards only the current partial, and lets the queue
@@ -93,20 +105,20 @@ or transcript text.
 ## Run Phase 2
 
 ```bash
-uv run python -m src.reporting.cli report --session sessions/session_2026-07-22_14-30-00
+uv run python -m src.reporting.cli report --data-root data
 ```
 
-Use `--force` to regenerate an existing report. `SARVAM_API_KEY` is required;
+Each report uses only transcripts that have not appeared in an earlier report. `SARVAM_API_KEY` is required;
 `SARVAM_LLM_MODEL` defaults to `sarvam-105b`.
 
-## Output layout (per session)
+## Report output layout
 
 ```text
-sessions/
-  session_YYYY-MM-DD_HH-MM-SS/
-    transcripts/                       # Phase 1 output
-    reports/
-      museum_event_report.json         # structured report
-      museum_event_report.md           # operator-readable report
-      museum_event_report.response.*   # private model response for audit
+data/
+  transcripts/                         # Phase 1 output
+  reports/
+    manifest.json                      # transcript IDs already reported
+    museum_event_report_*.json         # structured historical reports
+    museum_event_report_*.md           # historical Markdown reports
+    museum_event_report.md             # latest operator-readable report
 ```

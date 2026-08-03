@@ -13,7 +13,7 @@ from src.pipeline.queue import (
     STATUS_FAILED,
 )
 from src.pipeline.worker_v2 import ProcessingWorker, WorkerPaths
-from src.storage.session import new_session_paths
+from src.storage.data import data_paths
 
 from tests.conftest import FakeAdapter
 
@@ -28,7 +28,7 @@ def _sine(path: Path, seconds: float = 0.5, sr: int = 16000) -> None:
 
 
 def test_drain_processes_all_accepted(tmp_path):
-    paths = new_session_paths(tmp_path)
+    paths = data_paths(tmp_path)
     for i in range(1, 4):
         _sine(paths.audio / f"visitor_000{i}.wav", seconds=0.4)
     q = ProcessingQueue()
@@ -70,7 +70,7 @@ def test_drain_processes_all_accepted(tmp_path):
 def test_worker_passes_initial_prompt_to_adapter(tmp_path):
     from tests.conftest import FakeAdapter
 
-    paths = new_session_paths(tmp_path)
+    paths = data_paths(tmp_path)
     _sine(paths.audio / "visitor_0001.wav", seconds=0.4)
     q = ProcessingQueue()
     q.enqueue(
@@ -110,7 +110,7 @@ def test_worker_passes_initial_prompt_to_adapter(tmp_path):
 
 
 def test_failure_does_not_destroy_queue(tmp_path):
-    paths = new_session_paths(tmp_path)
+    paths = data_paths(tmp_path)
     for i in range(1, 4):
         _sine(paths.audio / f"visitor_000{i}.wav", seconds=0.4)
     q = ProcessingQueue()

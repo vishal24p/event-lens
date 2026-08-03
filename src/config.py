@@ -20,7 +20,7 @@ from typing import Any, Dict
 
 # Env var -> Config field name. Add new entries here when extending Config.
 ENV_VARS: Dict[str, str] = {
-    "SESSIONS_ROOT": "sessions_root",
+    "DATA_ROOT": "data_root",
     "INPUT_DEVICE": "input_device",
     "TARGET_SAMPLE_RATE": "target_sample_rate",
     "CHANNELS": "channels",
@@ -41,8 +41,8 @@ ENV_VARS: Dict[str, str] = {
 
 @dataclass(frozen=True)
 class Config:
-    # Root directory under which session folders are created.
-    sessions_root: Path
+    # Root directory holding the global audio, transcript, queue, and report folders.
+    data_root: Path
 
     # Audio capture device index. None = default input device.
     input_device: int | None
@@ -118,7 +118,7 @@ def _coerce(field_name: str, value: Any) -> Any:
 
 def default_config() -> Config:
     return Config(
-        sessions_root=Path("sessions"),
+        data_root=Path("data"),
         input_device=None,
     )
 
@@ -151,7 +151,7 @@ def _apply_overlay(cfg: Config, data: Dict[str, Any]) -> Config:
     kwargs: Dict[str, Any] = {}
     for key, value in flat.items():
         if key in valid:
-            if key == "sessions_root":
+            if key == "data_root":
                 kwargs[key] = Path(str(value))
             else:
                 kwargs[key] = _coerce(key, value)

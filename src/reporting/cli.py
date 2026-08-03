@@ -38,13 +38,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m src.reporting.cli", description="Phase 2 AI Museum report CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
     report = subparsers.add_parser("report", help="Generate the final museum report from Phase 1 transcripts")
-    report.add_argument("--session", type=Path, required=True)
+    report.add_argument("--data-root", type=Path, default=Path("data"))
     report.add_argument("--model", default=os.environ.get("SARVAM_LLM_MODEL", DEFAULT_MODEL))
-    report.add_argument("--force", action="store_true", help="Regenerate an existing report")
     args = parser.parse_args(argv)
-    session_root = args.session.resolve()
-    if not session_root.is_dir():
-        print(f"error: session path not found: {session_root}", file=sys.stderr)
+    data_root = args.data_root.resolve()
+    if not data_root.is_dir():
+        print(f"error: data path not found: {data_root}", file=sys.stderr)
         return 2
     if args.model != DEFAULT_MODEL:
         print("error: --model must be sarvam-105b", file=sys.stderr)
@@ -56,13 +55,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         print(f"[phase 2 report] provider: Sarvam AI; model: {args.model}")
         outcome = generate_event_report(
-            session_root=session_root,
+            data_root=data_root,
             catalog=_load_catalog(root),
             system_prompt=(root / "prompts" / "museum_event_report_v1.txt").read_text(encoding="utf-8"),
             response_schema=_load_json(root, "schemas/museum_event_report_v1.json"),
             api_key=api_key,
             model=args.model,
-            force=args.force,
         )
     except (EventReportError, SarvamError) as error:
         print(f"error: {error}", file=sys.stderr)
