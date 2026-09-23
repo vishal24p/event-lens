@@ -1,12 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { motion, useReducedMotion } from "motion/react";
-import { Button, Chip } from "@heroui/react";
-import { Check, CornerDownLeft, FileText, Keyboard, Mic, Radio, RotateCcw, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, CornerDownLeft, FileText, Keyboard, Mic, Pause, RotateCcw, Square } from "lucide-react";
 
 import { AudioVisualizer } from "../components/AudioVisualizer";
 import { KeyboardShortcutsModal } from "../components/KeyboardShortcutsModal";
+import { QueueLedger, type QueueSnapshot } from "../components/QueueLedger";
 import { ToastNotification, type ToastMessage } from "../components/ToastNotification";
 
 type OperatorStatus = {
@@ -15,10 +14,13 @@ type OperatorStatus = {
   elapsed_seconds: number;
   input_level: number;
   report_ready: boolean;
+  queue?: QueueSnapshot;
 };
 
 function formatTime(seconds: number) {
-  return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
+  return `${Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
 }
 
 export default function Home() {
@@ -29,9 +31,10 @@ export default function Home() {
   const [pressedKey, setPressedKey] = useState<string | null>(null);
   const [reportUrl, setReportUrl] = useState<string | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
-  const reducedMotion = useReducedMotion() ?? false;
+
   const isRecording = status?.capture_state === "recording";
   const isIdle = status?.capture_state === "idle";
+  const isStopped = status?.capture_state === "stopped";
 
   const showToast = useCallback((message: Omit<ToastMessage, "id">) => {
     setToast({ ...message, id: Date.now().toString() });
@@ -42,11 +45,11 @@ export default function Home() {
     try {
       const response = await fetch("/api/status", { cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message ?? "Unable to read operator status.");
+      if (!response.ok) throw new Error(payload.error?.message ?? "Unable to read booth status.");
       setStatus(payload.data);
       setConnectionError(null);
     } catch (error) {
-      setConnectionError(error instanceof Error ? error.message : "Operator backend is unavailable.");
+      setConnectionError(error instanceof Error ? error.message : "The capture engine is not reachable.");
     }
   }, []);
 
@@ -56,20 +59,23 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, [refreshStatus]);
 
-  const runCaptureAction = useCallback(async (path: string, success: string, keyHint: string, type: ToastMessage["type"]) => {
-    setBusy(path);
-    try {
-      const response = await fetch(path, { method: "POST" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error?.message ?? "Action failed.");
-      setStatus(payload.data);
-      showToast({ type, title: success, keyHint });
-    } catch (error) {
-      showToast({ type: "warning", title: error instanceof Error ? error.message : "Action failed." });
-    } finally {
-      setBusy(null);
-    }
-  }, [showToast]);
+  const runCaptureAction = useCallback(
+    async (path: string, success: string, keyHint: string, type: ToastMessage["type"]) => {
+      setBusy(path);
+      try {
+        const response = await fetch(path, { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error?.message ?? "Action failed.");
+        setStatus(payload.data);
+        showToast({ type, title: success, keyHint });
+      } catch (error) {
+        showToast({ type: "warning", title: error instanceof Error ? error.message : "Action failed." });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [showToast],
+  );
 
   const generateReport = useCallback(async () => {
     setBusy("/api/report");
@@ -78,7 +84,7 @@ export default function Home() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error?.message ?? "Report generation failed.");
       setReportUrl(payload.data.markdown_url);
-      showToast({ type: "success", title: "Museum report generated", keyHint: "R" });
+      showToast({ type: "success", title: "Report written", keyHint: "R" });
     } catch (error) {
       showToast({ type: "warning", title: error instanceof Error ? error.message : "Report generation failed." });
     } finally {
@@ -89,71 +95,197 @@ export default function Home() {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
-      if (event.key === "Escape" && isShortcutsOpen) {
+      if (event.key === "?" ) {
         event.preventDefault();
-        setIsShortcutsOpen(false);
+        setIsShortcutsOpen((open) => !open);
         return;
       }
-      const action = event.key === "Enter" && isIdle ? ["Enter", "/api/capture/start", "Recording started", "success"] as const
-        : event.key === "Enter" ? ["Enter", "/api/capture/accept", "Visitor saved", "success"] as const
-        : event.key === "Escape" ? ["Escape", "/api/capture/discard", "Recording discarded", "warning"] as const
-        : event.key.toLowerCase() === "q" ? ["Q", "/api/capture/stop", "Capture stopped", "stop"] as const
-        : null;
+      if (isShortcutsOpen) return;
+      const action =
+        event.key === "Enter" && isIdle
+          ? (["Enter", "/api/capture/start", "Listening", "start"] as const)
+          : event.key === "Enter"
+            ? (["Enter", "/api/capture/accept", "Visitor kept", "success"] as const)
+            : event.key === "Escape"
+              ? (["Escape", "/api/capture/discard", "Take discarded", "warning"] as const)
+              : event.key.toLowerCase() === "q"
+                ? (["Q", "/api/capture/stop", "Booth closed", "stop"] as const)
+                : null;
       if (action) {
         event.preventDefault();
         setPressedKey(action[0]);
         void runCaptureAction(action[1], action[2], action[0], action[3]);
-        window.setTimeout(() => setPressedKey(null), 200);
+        window.setTimeout(() => setPressedKey(null), 160);
       } else if (event.key.toLowerCase() === "r" && status?.report_ready) {
         event.preventDefault();
         void generateReport();
-      } else if (event.key === "?") {
-        event.preventDefault();
-        setIsShortcutsOpen((open) => !open);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [generateReport, isIdle, runCaptureAction, status?.report_ready]);
+  }, [generateReport, isIdle, isShortcutsOpen, runCaptureAction, status?.report_ready]);
+
+  const headline = useMemo(() => {
+    if (isRecording) return "Listening";
+    if (isIdle) return "Booth open";
+    if (isStopped) return "Booth closed";
+    return "Connecting";
+  }, [isIdle, isRecording, isStopped]);
+
+  const visitorLabel = status?.current_visitor_id ?? (isIdle ? "Next visitor" : isStopped ? "Capture ended" : "—");
 
   return (
-    <main className="min-h-svh h-svh overflow-hidden bg-[#060608] text-white flex flex-col relative selection:bg-[#c6ff33] selection:text-black">
+    <main className="booth-shell flex min-h-svh flex-col text-[var(--bone)]">
       <ToastNotification toast={toast} />
       <KeyboardShortcutsModal isOpen={isShortcutsOpen} onClose={() => setIsShortcutsOpen(false)} />
-      <div className="relative z-10 mx-auto flex h-full w-full flex-col px-4 sm:px-8 lg:px-12 max-w-7xl">
-        <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/[0.08]">
-          <div className="flex items-center gap-3">
-            <div className="grid size-7 place-items-center rounded-md bg-[#c6ff33]"><Radio className="size-3.5 text-black" /></div>
-            <div><h1 className="text-sm font-semibold tracking-tight text-white leading-none">Event Lens</h1><p className="text-[10px] text-white/40 mt-0.5 leading-none">Operator console</p></div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-xs text-white/55">{status ? "Global feedback queue" : "Connecting…"}</span>
-            {reportUrl && <a href={reportUrl} target="_blank" rel="noreferrer" className="text-xs text-[#c6ff33] hover:underline">Open report</a>}
-            <button type="button" onClick={() => void generateReport()} disabled={!status?.report_ready || busy !== null} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/55 hover:text-white hover:bg-white/[0.06] disabled:opacity-30 disabled:pointer-events-none"><FileText className="size-3.5" /><span className="hidden sm:inline">Report</span><kbd>R</kbd></button>
-            <button type="button" onClick={() => setIsShortcutsOpen(true)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-white/55 hover:text-white hover:bg-white/[0.06]"><Keyboard className="size-3.5" /><span className="hidden sm:inline">Help</span><kbd>?</kbd></button>
-          </div>
-        </header>
 
-        <motion.section initial={reducedMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reducedMotion ? 0 : 0.25 }} className="flex min-h-0 flex-1 py-4 sm:py-5" aria-label="Feedback recording controls">
-          <div className="flex h-full w-full flex-col overflow-hidden rounded-2xl border border-white/[0.10] bg-[#0c0c0f]">
-            <div className="flex items-center justify-between border-b border-white/[0.07] px-6 py-3.5 sm:px-8">
-              <div className="flex items-center gap-3"><Mic className={`size-4 ${isRecording ? "text-emerald-400" : "text-white/25"}`} /><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/35 leading-none">Active visitor</p><p className="font-mono text-sm font-semibold text-white mt-1 leading-none tabular-nums">{status?.current_visitor_id ?? (isIdle ? "Ready to record" : "Capture stopped")}</p></div></div>
-              <div className="flex items-center gap-3"><span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30 hidden sm:inline">Source: local microphone</span><Chip variant="soft" size="sm" className={`px-2.5 py-0.5 font-mono text-[11px] font-semibold rounded-full border tracking-wider ${isRecording ? "bg-emerald-400/10 text-emerald-400 border-emerald-400/25" : isIdle ? "bg-[#c6ff33]/10 text-[#c6ff33] border-[#c6ff33]/25" : "bg-red-400/10 text-red-400 border-red-400/25"}`}>{isRecording ? "Recording" : isIdle ? "Ready" : "Stopped"}</Chip></div>
+      <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-[var(--hairline)] px-4 sm:px-6">
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[var(--muted)]">AI Museum · KIT</p>
+          <h1 className="font-display truncate text-lg leading-tight sm:text-xl">Event Lens</h1>
+        </div>
+        <div className="flex items-center gap-1 sm:gap-2">
+          {reportUrl ? (
+            <a href={reportUrl} target="_blank" rel="noreferrer" className="px-2 py-1.5 text-xs text-[var(--celadon)] hover:underline">
+              Open report
+            </a>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void generateReport()}
+            disabled={!status?.report_ready || busy !== null}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-[var(--muted)] hover:bg-white/5 hover:text-[var(--bone)] disabled:pointer-events-none disabled:opacity-30"
+          >
+            <FileText className="size-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">{busy === "/api/report" ? "Writing…" : "Report"}</span>
+            <kbd>R</kbd>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsShortcutsOpen(true)}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs text-[var(--muted)] hover:bg-white/5 hover:text-[var(--bone)]"
+          >
+            <Keyboard className="size-3.5" aria-hidden="true" />
+            <span className="hidden sm:inline">Keys</span>
+            <kbd>?</kbd>
+          </button>
+        </div>
+      </header>
+
+      {connectionError ? (
+        <p role="alert" className="border-b border-[rgba(196,92,74,0.35)] bg-[rgba(196,92,74,0.12)] px-4 py-2 text-sm text-[var(--bone)] sm:px-6">
+          Engine unavailable: {connectionError}. Start the operator server on port 8765.
+        </p>
+      ) : null}
+
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.85fr)]">
+        <section id="booth-main" className="flex min-h-0 flex-col px-4 py-5 sm:px-8 sm:py-6" aria-label="Listening booth">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Now</p>
+              <p className="font-display text-3xl text-[var(--bone)] sm:text-4xl" aria-live="polite">
+                {headline}
+              </p>
             </div>
-            <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-6 sm:px-8 gap-5">
-              <p className="timer-nums text-[clamp(4rem,9vw,7.5rem)] font-light leading-none text-white tracking-[-0.03em]" aria-label={`${status?.elapsed_seconds ?? 0} seconds recorded`}>{formatTime(status?.elapsed_seconds ?? 0)}</p>
-              <div className="w-full"><AudioVisualizer isRecording={Boolean(isRecording)} level={status?.input_level ?? 0} /></div>
-              {connectionError && <p role="alert" className="text-sm text-red-300">Backend unavailable: {connectionError}</p>}
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Accession</p>
+              <p className="font-mono text-sm tabular-nums text-[var(--paper)]">{visitorLabel}</p>
             </div>
-            <div className="border-t border-white/[0.07] px-6 py-4 sm:px-8"><div className="grid w-full gap-3 md:grid-cols-12" aria-label="Operator controls">
-              <Button variant="primary" size="lg" fullWidth isDisabled={(!isRecording && !isIdle) || busy !== null} onPress={() => void runCaptureAction(isIdle ? "/api/capture/start" : "/api/capture/accept", isIdle ? "Recording started" : "Visitor saved", "Enter", "success")} className={`md:col-span-4 min-h-[64px] justify-between rounded-xl px-5 text-left ${pressedKey === "Enter" ? "key-pressed-active" : ""} bg-[#c6ff33] hover:bg-[#d4ff66] text-black font-semibold`}><div className="flex items-center gap-3">{isIdle ? <Mic className="size-5 stroke-[3]" /> : <Check className="size-5 stroke-[3]" />}<span className="font-bold text-[15px]">{isIdle ? "Start recording" : "Save & next"}</span></div><div className="flex items-center gap-1 bg-black/12 px-2 py-1 rounded-md font-mono text-[11px]"><span>Enter</span><CornerDownLeft className="size-3" /></div></Button>
-              <Button variant="danger-soft" size="lg" fullWidth isDisabled={!isRecording || busy !== null} onPress={() => void runCaptureAction("/api/capture/accept-and-pause", "Feedback saved and recording paused", "", "warning")} className="md:col-span-3 min-h-[64px] justify-between rounded-xl px-4 text-left bg-red-500/20 border border-red-500/35 text-white"><div className="flex items-center gap-2.5"><Square className="size-4 text-red-400 fill-red-400" /><span className="font-semibold text-sm">Save & pause</span></div></Button>
-              <Button variant="outline" size="lg" fullWidth isDisabled={!isRecording || busy !== null} onPress={() => void runCaptureAction("/api/capture/discard", "Recording discarded", "Esc", "warning")} className={`md:col-span-2 min-h-[64px] justify-between rounded-xl px-4 text-left ${pressedKey === "Escape" ? "key-pressed-active" : ""} bg-transparent border border-white/[0.14] text-white`}><div className="flex items-center gap-2.5"><RotateCcw className="size-4 text-white/50" /><span className="font-semibold text-sm">Retry</span></div><kbd>Esc</kbd></Button>
-              <Button variant="danger-soft" size="lg" fullWidth isDisabled={!isRecording || busy !== null} onPress={() => void runCaptureAction("/api/capture/stop", "Capture stopped", "Q", "stop")} className={`md:col-span-3 min-h-[64px] justify-between rounded-xl px-4 text-left ${pressedKey === "Q" ? "key-pressed-active" : ""} bg-red-500/20 border border-red-500/35 text-white`}><div className="flex items-center gap-2.5"><Square className="size-4 text-red-400 fill-red-400" /><span className="font-semibold text-sm">Stop capture</span></div><kbd>Q</kbd></Button>
-            </div></div>
           </div>
-        </motion.section>
-        <footer className="flex h-8 shrink-0 items-center justify-between text-[10px] text-white/30"><span>Python controls the microphone and transcript pipeline.</span><span>Press <kbd className="text-[9px]">?</kbd> for shortcuts</span></footer>
+
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center py-6">
+            <div
+              className={`lens-ring relative aspect-square w-[min(100%,280px)] overflow-hidden rounded-full bg-[var(--vitrine)] sm:w-[min(100%,340px)] ${isRecording ? "is-live" : ""}`}
+              role="img"
+              aria-label={
+                isRecording
+                  ? `Live microphone, ${Math.round((status?.input_level ?? 0) * 100)} percent`
+                  : "Microphone idle"
+              }
+            >
+              <AudioVisualizer isRecording={Boolean(isRecording)} level={status?.input_level ?? 0} />
+            </div>
+            <p
+              className="timer-nums mt-6 text-[clamp(3.25rem,8vw,5.5rem)] font-normal leading-none tracking-[-0.04em] text-[var(--paper)]"
+              aria-label={`${status?.elapsed_seconds ?? 0} seconds recorded`}
+            >
+              {formatTime(status?.elapsed_seconds ?? 0)}
+            </p>
+            <p className="mt-3 max-w-md text-center text-sm text-[var(--muted)] text-pretty">
+              {isRecording
+                ? "Visitor is on the mic. Keep this take, discard it, or rest the booth."
+                : isIdle
+                  ? "Press Enter to open the lens and start the next visitor."
+                  : isStopped
+                    ? "This run cannot restart. Wait for the ledger, then write the report."
+                    : "Waiting for the capture engine."}
+            </p>
+          </div>
+
+          <div className="grid shrink-0 gap-2 sm:grid-cols-2 lg:grid-cols-4" aria-label="Booth controls">
+            <button
+              type="button"
+              className={`ctrl ctrl-primary ${pressedKey === "Enter" ? "is-pressed" : ""} sm:col-span-2 lg:col-span-1`}
+              disabled={(!isRecording && !isIdle) || busy !== null}
+              onClick={() =>
+                void runCaptureAction(
+                  isIdle ? "/api/capture/start" : "/api/capture/accept",
+                  isIdle ? "Listening" : "Visitor kept",
+                  "Enter",
+                  isIdle ? "start" : "success",
+                )
+              }
+            >
+              <span className="flex items-center gap-2">
+                {isIdle ? <Mic className="size-4" aria-hidden="true" /> : <Check className="size-4" aria-hidden="true" />}
+                <span className="text-sm">{isIdle ? "Start listening" : "Keep & next"}</span>
+              </span>
+              <span className="flex items-center gap-1 font-mono text-[11px] opacity-70">
+                Enter
+                <CornerDownLeft className="size-3" aria-hidden="true" />
+              </span>
+            </button>
+            <button
+              type="button"
+              className="ctrl ctrl-ghost"
+              disabled={!isRecording || busy !== null}
+              onClick={() =>
+                void runCaptureAction("/api/capture/accept-and-pause", "Kept, booth idle", "", "info")
+              }
+            >
+              <span className="flex items-center gap-2">
+                <Pause className="size-4" aria-hidden="true" />
+                <span className="text-sm">Keep & rest</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`ctrl ctrl-copper ${pressedKey === "Escape" ? "is-pressed" : ""}`}
+              disabled={!isRecording || busy !== null}
+              onClick={() => void runCaptureAction("/api/capture/discard", "Take discarded", "Esc", "warning")}
+            >
+              <span className="flex items-center gap-2">
+                <RotateCcw className="size-4" aria-hidden="true" />
+                <span className="text-sm">Discard take</span>
+              </span>
+              <kbd>Esc</kbd>
+            </button>
+            <button
+              type="button"
+              className={`ctrl ctrl-warn ${pressedKey === "Q" ? "is-pressed" : ""}`}
+              disabled={!isRecording || busy !== null}
+              onClick={() => void runCaptureAction("/api/capture/stop", "Booth closed", "Q", "stop")}
+            >
+              <span className="flex items-center gap-2">
+                <Square className="size-3.5 fill-current" aria-hidden="true" />
+                <span className="text-sm">Close booth</span>
+              </span>
+              <kbd>Q</kbd>
+            </button>
+          </div>
+        </section>
+
+        <QueueLedger queue={status?.queue} />
       </div>
     </main>
   );
