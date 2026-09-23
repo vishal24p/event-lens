@@ -135,7 +135,7 @@ config.toml                    Default configuration
 **1. Install dependencies**
 
 ```bash
-uv sync            # or: pip install -e ".[dev]"
+uv sync --extra dev  # or: pip install -e ".[dev]"
 ```
 
 **2. Configure**
