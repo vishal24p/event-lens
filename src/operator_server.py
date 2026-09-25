@@ -23,7 +23,90 @@ class ApiConflict(RuntimeError):
 ReportGenerator = Callable[[Path], dict]
 
 
-def build_server(*, application: Application, report_generator: ReportGenerator, port: int = 8765) -> ThreadingHTTPServer:
+def _project_catalog() -> list[dict]:
+    path = _project_root() / "context" / "project_catalog.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    projects = payload.get("projects")
+    if not isinstance(projects, list):
+        raise EventReportError("project catalog has no projects list")
+    return [project for project in projects if isinstance(project, dict)]
+
+
+def _feedback_items(data_root: Path, catalog: list[dict]) -> list[dict]:
+    projects = {
+        project["project_id"]: project
+        for project in catalog
+        if isinstance(project.get("project_id"), str) and project["project_id"]
+    }
+    items = []
+    transcripts_dir = data_root / "transcripts"
+    classifications_dir = data_root / "classifications"
+    for transcript_path in sorted(transcripts_dir.glob("visitor_*.json"), reverse=True):
+        try:
+            transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise EventReportError(f"invalid transcript file {transcript_path.name}: {error}") from error
+        visitor_id = transcript.get("visitor_id")
+        text = transcript.get("text")
+        if not isinstance(visitor_id, str) or not isinstance(text, str) or not text.strip():
+            continue
+
+        classification = {"status": "pending", "project_ids": [], "error": None}
+        classification_path = classifications_dir / transcript_path.name
+        if classification_path.is_file():
+            try:
+                stored = json.loads(classification_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                stored = {"status": "failed", "project_ids": [], "error": str(error)}
+            if isinstance(stored, dict):
+                classification.update(
+                    status=stored.get("status", "failed"),
+                    project_ids=stored.get("project_ids", []),
+                    error=stored.get("error"),
+                )
+
+        requested_ids = classification["project_ids"]
+        if not isinstance(requested_ids, list):
+            requested_ids = []
+            classification["status"] = "failed"
+            classification["error"] = "classification project_ids must be a list"
+        unknown_ids = [project_id for project_id in requested_ids if project_id not in projects]
+        if unknown_ids:
+            classification["status"] = "failed"
+            classification["error"] = f"unknown project ids: {unknown_ids}"
+        valid_ids = [project_id for project_id in requested_ids if project_id in projects]
+        classification["project_ids"] = valid_ids
+        resolved_projects = [
+            {
+                "project_id": project_id,
+                "name": projects[project_id].get("short_name")
+                or projects[project_id].get("official_name")
+                or project_id,
+                "zone": projects[project_id].get("zone"),
+            }
+            for project_id in valid_ids
+        ]
+        items.append(
+            {
+                "visitor_id": visitor_id,
+                "text": text,
+                "segments": transcript.get("segments") if isinstance(transcript.get("segments"), list) else [],
+                "classification": classification,
+                "projects": resolved_projects,
+            }
+        )
+    return items
+
+
+def build_server(
+    *,
+    application: Application,
+    report_generator: ReportGenerator,
+    feedback_catalog: Optional[list[dict]] = None,
+    port: int = 8765,
+) -> ThreadingHTTPServer:
+    catalog = feedback_catalog if feedback_catalog is not None else _project_catalog()
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args) -> None:  # pragma: no cover - noisy server default
             return
@@ -43,6 +126,16 @@ def build_server(*, application: Application, report_generator: ReportGenerator,
         def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
             if self.path == "/api/status":
                 self._json(200, {"data": application.status_snapshot()})
+                return
+            if self.path == "/api/feedback":
+                data_root = application.data_root
+                if data_root is None:
+                    self._error(409, "feedback_unavailable", "The feedback pipeline is not running.")
+                    return
+                try:
+                    self._json(200, {"data": {"items": _feedback_items(data_root, catalog)}})
+                except (EventReportError, OSError, json.JSONDecodeError) as error:
+                    self._error(500, "feedback_unavailable", str(error))
                 return
             if self.path == "/api/report/markdown":
                 data_root = application.data_root
