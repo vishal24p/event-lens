@@ -70,11 +70,12 @@ def _feedback_items(data_root: Path, catalog: list[dict]) -> list[dict]:
             requested_ids = []
             classification["status"] = "failed"
             classification["error"] = "classification project_ids must be a list"
-        unknown_ids = [project_id for project_id in requested_ids if project_id not in projects]
-        if unknown_ids:
+        invalid_ids = [project_id for project_id in requested_ids if not isinstance(project_id, str)]
+        unknown_ids = [project_id for project_id in requested_ids if isinstance(project_id, str) and project_id not in projects]
+        if invalid_ids or unknown_ids:
             classification["status"] = "failed"
-            classification["error"] = f"unknown project ids: {unknown_ids}"
-        valid_ids = [project_id for project_id in requested_ids if project_id in projects]
+            classification["error"] = f"invalid project ids: {invalid_ids + unknown_ids}"
+        valid_ids = [project_id for project_id in requested_ids if isinstance(project_id, str) and project_id in projects]
         classification["project_ids"] = valid_ids
         resolved_projects = [
             {
@@ -105,7 +106,7 @@ def build_server(
     feedback_catalog: Optional[list[dict]] = None,
     port: int = 8765,
 ) -> ThreadingHTTPServer:
-    catalog = feedback_catalog if feedback_catalog is not None else _project_catalog()
+    catalog = feedback_catalog
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args) -> None:  # pragma: no cover - noisy server default
@@ -133,7 +134,8 @@ def build_server(
                     self._error(409, "feedback_unavailable", "The feedback pipeline is not running.")
                     return
                 try:
-                    self._json(200, {"data": {"items": _feedback_items(data_root, catalog)}})
+                    resolved_catalog = catalog if catalog is not None else _project_catalog()
+                    self._json(200, {"data": {"items": _feedback_items(data_root, resolved_catalog)}})
                 except (EventReportError, OSError, json.JSONDecodeError) as error:
                     self._error(500, "feedback_unavailable", str(error))
                 return

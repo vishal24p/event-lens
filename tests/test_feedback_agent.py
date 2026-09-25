@@ -36,6 +36,7 @@ def test_parse_tool_call_returns_arguments_for_one_expected_call():
         "tool_calls": [
             {
                 "id": "call_1",
+                "type": "function",
                 "function": {
                     "name": "classify_feedback",
                     "arguments": '{"feedback_text":"Great","projects_connections":[]}',
@@ -60,10 +61,28 @@ def test_parse_tool_call_rejects_unknown_function():
             {
                 "tool_calls": [
                     {
+                        "type": "function",
                         "function": {
                             "name": "other_tool",
                             "arguments": "{}",
                         }
+                    }
+                ]
+            }
+        )
+
+
+def test_parse_tool_call_rejects_extra_arguments():
+    with pytest.raises(FeedbackAgentError, match="arguments"):
+        parse_classification_tool_call(
+            {
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "classify_feedback",
+                            "arguments": '{"feedback_text":"Great","projects_connections":[],"extra":true}',
+                        },
                     }
                 ]
             }

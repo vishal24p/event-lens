@@ -196,6 +196,36 @@ def test_processing_worker_notifies_agent_after_transcript_write(tmp_path):
     assert ready == [paths.transcripts / "visitor_0001.json"]
 
 
+def test_processing_worker_publishes_transcript_with_replace(tmp_path, monkeypatch):
+    paths = data_paths(tmp_path)
+    replacements = []
+    original_replace = Path.replace
+
+    def record_replace(source, target):
+        replacements.append((source, target))
+        return original_replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", record_replace)
+    worker = ProcessingWorker(
+        queue=ProcessingQueue(),
+        adapter=FakeAdapter(),
+        paths=WorkerPaths(paths.normalized, paths.quality, paths.transcripts),
+        target_sample_rate=16000,
+        target_peak_dbfs=-3.0,
+    )
+    worker._save_transcript(  # noqa: SLF001
+        "visitor_0001",
+        QueueItem(visitor_id="visitor_0001", raw_audio_path=paths.audio / "visitor_0001.wav"),
+        paths.normalized / "visitor_0001.wav",
+        TranscriptionResult(language="en", text="Useful feedback", segments=[]),
+    )
+
+    assert replacements[-1] == (
+        paths.transcripts / "visitor_0001.json.tmp",
+        paths.transcripts / "visitor_0001.json",
+    )
+
+
 def test_agent_failure_writes_failed_artifact_without_touching_queue(tmp_path):
     paths = data_paths(tmp_path)
     transcript_path = paths.transcripts / "visitor_0001.json"

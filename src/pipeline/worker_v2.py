@@ -150,9 +150,11 @@ class ProcessingWorker:
         }
         out = self._paths.transcripts_dir / f"{vid}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
+        temporary = out.with_suffix(out.suffix + ".tmp")
+        temporary.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        temporary.replace(out)
         if self._on_transcript_ready is not None:
             try:
                 self._on_transcript_ready(out)

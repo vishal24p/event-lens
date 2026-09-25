@@ -87,3 +87,19 @@ def test_feedback_endpoint_hides_unknown_project_ids(tmp_path: Path):
     item = body["data"]["items"][0]
     assert item["projects"] == []
     assert item["classification"]["status"] == "failed"
+
+
+def test_feedback_endpoint_handles_malformed_project_ids(tmp_path: Path):
+    _write_transcript(tmp_path, "visitor_0001", "Malformed artifact.")
+    (tmp_path / "classifications").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "classifications" / "visitor_0001.json").write_text(
+        json.dumps({"visitor_id": "visitor_0001", "status": "completed", "project_ids": [{}]}),
+        encoding="utf-8",
+    )
+
+    status, body = _request_feedback(tmp_path)
+
+    assert status == 200
+    item = body["data"]["items"][0]
+    assert item["projects"] == []
+    assert item["classification"]["status"] == "failed"

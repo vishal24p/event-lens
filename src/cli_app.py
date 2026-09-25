@@ -148,15 +148,21 @@ class Application:
 
     def _start_worker(self) -> None:
         assert self._paths is not None
-        catalog_path = Path(__file__).resolve().parents[1] / "context" / "project_catalog.json"
-        catalog = json.loads(catalog_path.read_text(encoding="utf-8")).get("projects", [])
-        self._agent_worker = FeedbackAgentWorker(
-            transcripts_dir=self._paths.transcripts,
-            classifications_dir=self._paths.classifications,
-            catalog=catalog,
-            api_key=self._config.sarvam_api_key,
-        )
-        self._agent_worker.start()
+        agent_enqueue = None
+        try:
+            catalog_path = Path(__file__).resolve().parents[1] / "context" / "project_catalog.json"
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8")).get("projects", [])
+            self._agent_worker = FeedbackAgentWorker(
+                transcripts_dir=self._paths.transcripts,
+                classifications_dir=self._paths.classifications,
+                catalog=catalog,
+                api_key=self._config.sarvam_api_key,
+            )
+            self._agent_worker.start()
+            agent_enqueue = self._agent_worker.enqueue
+        except Exception as error:
+            self._agent_worker = None
+            print(f"[agent] disabled: {error}", flush=True)
         paths = WorkerPaths(
             normalized_dir=self._paths.normalized,
             quality_dir=self._paths.quality,
@@ -171,7 +177,7 @@ class Application:
             stt_model=self._config.sarvam_model,
             stt_mode=self._config.sarvam_mode,
             stt_language_code=self._config.sarvam_language_code,
-            on_transcript_ready=self._agent_worker.enqueue,
+            on_transcript_ready=agent_enqueue,
         )
         self._worker.start()
 

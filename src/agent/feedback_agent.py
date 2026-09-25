@@ -81,6 +81,8 @@ def parse_classification_tool_call(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(calls, list) or len(calls) != 1:
         raise FeedbackAgentError("agent must return exactly one tool call")
     call = calls[0]
+    if not isinstance(call, dict) or call.get("type") != "function":
+        raise FeedbackAgentError("tool call must be a function")
     function = call.get("function") if isinstance(call, dict) else None
     if not isinstance(function, dict) or function.get("name") != TOOL_NAME:
         raise FeedbackAgentError(f"agent must call {TOOL_NAME}")
@@ -93,6 +95,10 @@ def parse_classification_tool_call(payload: dict[str, Any]) -> dict[str, Any]:
         raise FeedbackAgentError("tool call arguments are invalid JSON") from error
     if not isinstance(parsed, dict):
         raise FeedbackAgentError("tool call arguments must be an object")
+    if set(parsed) != {"feedback_text", "projects_connections"}:
+        raise FeedbackAgentError("tool call arguments have unexpected fields")
+    if not isinstance(parsed["feedback_text"], str) or not isinstance(parsed["projects_connections"], list):
+        raise FeedbackAgentError("tool call arguments have invalid fields")
     return parsed
 
 
