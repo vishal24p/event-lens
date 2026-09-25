@@ -1,6 +1,8 @@
 """Worker integration tests with a fake adapter."""
 from __future__ import annotations
 
+import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +14,7 @@ from src.pipeline.queue import (
     STATUS_COMPLETED,
     STATUS_FAILED,
 )
+from src.agent.feedback_agent import FeedbackAgentWorker
 from src.pipeline.worker_v2 import ProcessingWorker, WorkerPaths
 from src.stt.types import TranscriptionResult
 from src.storage.data import data_paths
@@ -159,8 +162,6 @@ def test_failure_does_not_destroy_queue(tmp_path):
         stt_language_code="unknown",
     )
     worker.start()
-    import time
-
     for _ in range(60):
         worker.nudge()
         if not q.has_open_work():
@@ -172,3 +173,56 @@ def test_failure_does_not_destroy_queue(tmp_path):
     assert counts[STATUS_COMPLETED] == 2
     # Raw WAV of the failed one is still on disk.
     assert (paths.audio / "visitor_0002.wav").exists()
+
+
+def test_processing_worker_notifies_agent_after_transcript_write(tmp_path):
+    paths = data_paths(tmp_path)
+    ready = []
+    worker = ProcessingWorker(
+        queue=ProcessingQueue(),
+        adapter=FakeAdapter(),
+        paths=WorkerPaths(paths.normalized, paths.quality, paths.transcripts),
+        target_sample_rate=16000,
+        target_peak_dbfs=-3.0,
+        on_transcript_ready=ready.append,
+    )
+    item = QueueItem(visitor_id="visitor_0001", raw_audio_path=paths.audio / "visitor_0001.wav")
+    result = TranscriptionResult(language="en", text="Useful feedback", segments=[])
+
+    worker._save_transcript(  # noqa: SLF001
+        "visitor_0001", item, paths.normalized / "visitor_0001.wav", result
+    )
+
+    assert ready == [paths.transcripts / "visitor_0001.json"]
+
+
+def test_agent_failure_writes_failed_artifact_without_touching_queue(tmp_path):
+    paths = data_paths(tmp_path)
+    transcript_path = paths.transcripts / "visitor_0001.json"
+    transcript_path.write_text(
+        json.dumps({"visitor_id": "visitor_0001", "text": "Useful feedback", "segments": []}),
+        encoding="utf-8",
+    )
+
+    def failing_transport(**_kwargs):
+        raise RuntimeError("agent unavailable")
+
+    agent = FeedbackAgentWorker(
+        transcripts_dir=paths.transcripts,
+        classifications_dir=paths.classifications,
+        catalog=[{"project_id": "ai_museum", "official_name": "AI Museum"}],
+        api_key="test-key",
+        transport=failing_transport,
+    )
+    agent.start()
+    agent.enqueue(transcript_path)
+    artifact_path = paths.classifications / "visitor_0001.json"
+    for _ in range(40):
+        if artifact_path.exists():
+            break
+        time.sleep(0.01)
+    agent.stop()
+
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact["status"] == "failed"
+    assert artifact["error"] == "agent unavailable"

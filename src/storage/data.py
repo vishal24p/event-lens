@@ -14,6 +14,7 @@ class DataPaths:
     normalized: Path
     quality: Path
     transcripts: Path
+    classifications: Path
     reports: Path
     queue: Path
 
@@ -26,10 +27,18 @@ def data_paths(data_root: Path) -> DataPaths:
         normalized=root / "normalized",
         quality=root / "quality",
         transcripts=root / "transcripts",
+        classifications=root / "classifications",
         reports=root / "reports",
         queue=root / "queue.json",
     )
-    for directory in (paths.audio, paths.normalized, paths.quality, paths.transcripts, paths.reports):
+    for directory in (
+        paths.audio,
+        paths.normalized,
+        paths.quality,
+        paths.transcripts,
+        paths.classifications,
+        paths.reports,
+    ):
         directory.mkdir(parents=True, exist_ok=True)
     return paths
 

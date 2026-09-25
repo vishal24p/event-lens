@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import threading
@@ -11,6 +12,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 
+from .agent.feedback_agent import FeedbackAgentWorker
 from .audio.capture import CaptureSession
 from .config import Config, load_config
 from .controls.keyboard import KeyboardListener
@@ -36,6 +38,7 @@ class Application:
         self._capture: Optional[CaptureSession] = None
         self._keyboard: Optional[KeyboardListener] = None
         self._worker: Optional[ProcessingWorker] = None
+        self._agent_worker: Optional[FeedbackAgentWorker] = None
         self._paths: Optional[DataPaths] = None
         self._action_lock = threading.Lock()
 
@@ -145,6 +148,15 @@ class Application:
 
     def _start_worker(self) -> None:
         assert self._paths is not None
+        catalog_path = Path(__file__).resolve().parents[1] / "context" / "project_catalog.json"
+        catalog = json.loads(catalog_path.read_text(encoding="utf-8")).get("projects", [])
+        self._agent_worker = FeedbackAgentWorker(
+            transcripts_dir=self._paths.transcripts,
+            classifications_dir=self._paths.classifications,
+            catalog=catalog,
+            api_key=self._config.sarvam_api_key,
+        )
+        self._agent_worker.start()
         paths = WorkerPaths(
             normalized_dir=self._paths.normalized,
             quality_dir=self._paths.quality,
@@ -159,6 +171,7 @@ class Application:
             stt_model=self._config.sarvam_model,
             stt_mode=self._config.sarvam_mode,
             stt_language_code=self._config.sarvam_language_code,
+            on_transcript_ready=self._agent_worker.enqueue,
         )
         self._worker.start()
 
@@ -310,6 +323,8 @@ class Application:
             self._keyboard.stop()
         if self._worker is not None:
             self._worker.stop()
+        if self._agent_worker is not None:
+            self._agent_worker.stop()
         if self._capture is not None and self._capture.is_running:
             try:
                 result = self._capture.finalize_and_discard()
