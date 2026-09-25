@@ -145,6 +145,9 @@ export default function Home() {
           <h1 className="font-display truncate text-lg leading-tight sm:text-xl">Event Lens</h1>
         </div>
         <div className="flex items-center gap-1 sm:gap-2">
+          <a href="/feedback" className="px-2 py-1.5 text-xs text-[var(--muted)] hover:underline">
+            Feedback stack
+          </a>
           {reportUrl ? (
             <a href={reportUrl} target="_blank" rel="noreferrer" className="px-2 py-1.5 text-xs text-[var(--celadon)] hover:underline">
               Open report
