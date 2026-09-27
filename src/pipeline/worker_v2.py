@@ -9,7 +9,7 @@ import json
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 from ..audio.normalize import normalize_visitor_recording
 from ..pipeline.queue import (
@@ -48,6 +48,7 @@ class ProcessingWorker:
         stt_mode: str = "codemix",
         stt_language_code: str = "unknown",
         initial_prompt: str = "",
+        on_transcript_ready: Optional[Callable[[Path], None]] = None,
     ) -> None:
         self._queue = queue
         self._adapter = adapter
@@ -58,6 +59,7 @@ class ProcessingWorker:
         self._stt_mode = stt_mode
         self._stt_language_code = stt_language_code
         self._initial_prompt = initial_prompt
+        self._on_transcript_ready = on_transcript_ready
         self._thread: Optional[threading.Thread] = None
         self._wake = threading.Event()
         self._stop = threading.Event()
@@ -148,9 +150,16 @@ class ProcessingWorker:
         }
         out = self._paths.transcripts_dir / f"{vid}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
+        temporary = out.with_suffix(out.suffix + ".tmp")
+        temporary.write_text(
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+        temporary.replace(out)
+        if self._on_transcript_ready is not None:
+            try:
+                self._on_transcript_ready(out)
+            except Exception:
+                pass
 
     @staticmethod
     def _read_duration(wav_path: Path) -> float:

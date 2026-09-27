@@ -1,7 +1,7 @@
 "use client";
 
-import { motion, AnimatePresence } from "motion/react";
-import { Keyboard, X, Command } from "lucide-react";
+import { useEffect, useId, useRef } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 interface KeyboardShortcutsModalProps {
   isOpen: boolean;
@@ -9,96 +9,97 @@ interface KeyboardShortcutsModalProps {
 }
 
 const shortcuts = [
-  { key: "Enter", description: "Save current visitor audio and start next visitor recording", category: "Capture Actions", action: "Save & Next" },
-  { key: "Esc", description: "Discard current partial audio recording and retry current visitor", category: "Capture Actions", action: "Stop & Retry" },
-  { key: "Q", description: "Stop active recording safely while saved feedback keeps processing", category: "Capture Control", action: "Stop Capture" },
-  { key: "?", description: "Open / close operator keyboard shortcuts guide", category: "Navigation", action: "Help Guide" },
-  { key: "R", description: "Generate the final museum report after capture and transcription finish", category: "Reporting", action: "Generate Report" },
+  { key: "Enter", action: "Start, or keep & next", detail: "Opens the booth, or saves this visitor and starts the next take." },
+  { key: "Esc", action: "Discard take", detail: "Throws away the current partial recording and retries this visitor ID." },
+  { key: "Q", action: "Close booth", detail: "Stops capture for this run. Saved takes keep processing." },
+  { key: "R", action: "Write report", detail: "Available after the booth is closed and the ledger has finished." },
+  { key: "?", action: "This guide", detail: "Show or hide keyboard controls." },
 ];
 
 export function KeyboardShortcutsModal({ isOpen, onClose }: KeyboardShortcutsModalProps) {
-  if (!isOpen) return null;
+  const titleId = useId();
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const reducedMotion = useReducedMotion() ?? false;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement;
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (previous instanceof HTMLElement) previous.focus();
+    };
+  }, [isOpen, onClose]);
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        {/* Backdrop */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-          className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-        />
-
-        {/* Modal Window */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-          className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/20 bg-[#0d0d0e] shadow-2xl p-6 text-white"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="shortcuts-title"
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-white/10 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="grid size-9 place-items-center rounded-lg bg-white/10 text-[#c6ff33]">
-                <Keyboard className="size-5" />
-              </div>
+      {isOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center">
+          <motion.div
+            initial={reducedMotion ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={reducedMotion ? undefined : { opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="absolute inset-0 bg-black/70"
+            onClick={onClose}
+          />
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            initial={reducedMotion ? false : { opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reducedMotion ? undefined : { opacity: 0, y: 8 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-[var(--hairline)] bg-[var(--vitrine)] p-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-[var(--hairline)] pb-4">
               <div>
-                <h2 id="shortcuts-title" className="text-base font-semibold tracking-tight">
-                  Operator Keyboard Controls
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Booth</p>
+                <h2 id={titleId} className="font-display mt-1 text-xl text-[var(--bone)]">
+                  Hands on the keys
                 </h2>
-                <p className="text-xs text-white/50">
-                  Quick keys for hands-free live museum feedback capture
+                <p className="mt-1 text-sm text-[var(--muted)] text-pretty">
+                  This desk is meant to be driven without looking down.
                 </p>
               </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg p-1.5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
-              aria-label="Close keyboard shortcuts"
-            >
-              <X className="size-5" />
-            </button>
-          </div>
-
-          {/* Shortcut List */}
-          <div className="mt-4 space-y-3 max-h-[60vh] overflow-y-auto pr-1">
-            {shortcuts.map((sc, idx) => (
-              <div
-                key={idx}
-                className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/5 hover:border-white/15 transition-colors"
+              <button
+                ref={closeRef}
+                type="button"
+                onClick={onClose}
+                className="rounded-lg px-2 py-1 text-sm text-[var(--muted)] hover:bg-white/5 hover:text-[var(--bone)]"
               >
-                <div className="flex flex-col pr-4">
-                  <span className="text-sm font-medium text-white">{sc.action}</span>
-                  <span className="text-xs text-white/50">{sc.description}</span>
-                </div>
-
-                <div className="shrink-0">
-                  <kbd className="px-3 py-1.5 font-mono text-xs font-semibold rounded-lg bg-white/10 border border-white/20 text-[#c6ff33] shadow-sm">
-                    {sc.key}
-                  </kbd>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Footer */}
-          <div className="mt-6 flex items-center justify-between border-t border-white/10 pt-4 text-xs text-white/50">
-            <div className="flex items-center gap-1.5">
-              <Command className="size-3.5 text-[#c6ff33]" />
-              <span>Operator Console v0.1.0</span>
+                Close
+              </button>
             </div>
-            <span>Press <kbd className="px-1.5 py-0.5 font-mono text-[10px] rounded bg-white/10 border border-white/20">ESC</kbd> or click outside to dismiss</span>
-          </div>
-        </motion.div>
-      </div>
+
+            <ul className="mt-4 space-y-2">
+              {shortcuts.map((row) => (
+                <li
+                  key={row.key}
+                  className="flex items-start justify-between gap-4 rounded-xl border border-[var(--hairline)] px-3 py-3"
+                >
+                  <div>
+                    <p className="text-sm font-medium text-[var(--bone)]">{row.action}</p>
+                    <p className="mt-0.5 text-xs leading-relaxed text-[var(--muted)] text-pretty">{row.detail}</p>
+                  </div>
+                  <kbd className="mt-0.5 shrink-0">{row.key}</kbd>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-4 text-xs text-[var(--muted)]">
+              Keep & rest has no key — it saves this visitor and leaves the booth idle.
+            </p>
+          </motion.div>
+        </div>
+      ) : null}
     </AnimatePresence>
   );
 }

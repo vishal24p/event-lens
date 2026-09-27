@@ -1,7 +1,6 @@
 "use client";
 
-import { motion, AnimatePresence } from "motion/react";
-import { CheckCircle2, AlertTriangle, Square, Play, Info } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 export type ToastType = "success" | "warning" | "stop" | "start" | "info";
 
@@ -15,64 +14,39 @@ export interface ToastMessage {
 
 interface ToastProps {
   toast: ToastMessage | null;
-  onDismiss?: () => void;
 }
 
+const TONE: Record<ToastType, string> = {
+  success: "border-[rgba(106,154,146,0.45)] bg-[rgba(106,154,146,0.14)]",
+  start: "border-[rgba(197,106,58,0.45)] bg-[rgba(197,106,58,0.14)]",
+  warning: "border-[rgba(196,92,74,0.45)] bg-[rgba(196,92,74,0.14)]",
+  stop: "border-[rgba(197,106,58,0.45)] bg-[rgba(197,106,58,0.14)]",
+  info: "border-[var(--hairline)] bg-[var(--vitrine)]",
+};
+
 export function ToastNotification({ toast }: ToastProps) {
+  const reducedMotion = useReducedMotion() ?? false;
+
   return (
     <AnimatePresence>
-      {toast && (
+      {toast ? (
         <motion.div
           key={toast.id}
-          initial={{ opacity: 0, y: -20, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -10, scale: 0.95 }}
-          transition={{ duration: 0.22, ease: "easeOut" }}
-          className="fixed top-5 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-full border shadow-2xl backdrop-blur-md"
-          style={{
-            backgroundColor:
-              toast.type === "success"
-                ? "rgba(198, 255, 51, 0.12)"
-                : toast.type === "warning"
-                ? "rgba(216, 77, 77, 0.15)"
-                : toast.type === "stop"
-                ? "rgba(255, 170, 0, 0.15)"
-                : "rgba(255, 255, 255, 0.10)",
-            borderColor:
-              toast.type === "success"
-                ? "rgba(198, 255, 51, 0.4)"
-                : toast.type === "warning"
-                ? "rgba(216, 77, 77, 0.4)"
-                : toast.type === "stop"
-                ? "rgba(255, 170, 0, 0.4)"
-                : "rgba(255, 255, 255, 0.2)",
-            color: "#ffffff",
-          }}
           role="status"
           aria-live="polite"
+          initial={reducedMotion ? false : { opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reducedMotion ? undefined : { opacity: 0, y: -6 }}
+          transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+          className={`fixed top-5 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border px-4 py-2.5 text-sm text-[var(--bone)] shadow-[0_16px_40px_rgba(0,0,0,0.35)] ${TONE[toast.type]}`}
         >
-          <div className="flex items-center justify-center size-6 rounded-full shrink-0">
-            {toast.type === "success" && <CheckCircle2 className="size-5 text-[#c6ff33]" />}
-            {toast.type === "warning" && <AlertTriangle className="size-5 text-[#d84d4d]" />}
-            {toast.type === "stop" && <Square className="size-4 text-[#ffaa00]" />}
-            {toast.type === "start" && <Play className="size-4 text-[#c6ff33]" />}
-            {toast.type === "info" && <Info className="size-5 text-white/80" />}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium tracking-tight text-white">{toast.title}</span>
-            {toast.description && (
-              <span className="text-xs text-white/60 font-mono">({toast.description})</span>
-            )}
-          </div>
-
-          {toast.keyHint && (
-            <kbd className="ml-1.5 px-2 py-0.5 text-[10px] font-mono rounded bg-white/10 border border-white/20 text-white/80">
-              {toast.keyHint}
-            </kbd>
-          )}
+          <span className="font-medium tracking-tight">{toast.title}</span>
+          {toast.description ? (
+            <span className="font-mono text-xs text-[var(--muted)]">({toast.description})</span>
+          ) : null}
+          {toast.keyHint ? <kbd>{toast.keyHint}</kbd> : null}
         </motion.div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 }

@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Event Lens",
-  description: "Operator console for visitor feedback capture.",
+  title: "Event Lens — listening booth",
+  description: "Booth console for capturing spoken visitor feedback.",
 };
 
 export default function RootLayout({
@@ -13,7 +13,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <a className="skip-link" href="#booth-main">
+          Skip to booth controls
+        </a>
+        {children}
+      </body>
     </html>
   );
 }
