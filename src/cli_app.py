@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 import threading
@@ -162,6 +163,12 @@ class Application:
             agent_enqueue = self._agent_worker.enqueue
         except Exception as error:
             self._agent_worker = None
+            logging.getLogger(__name__).warning(
+                json.dumps(
+                    {"event": "agent_disabled", "error_type": type(error).__name__},
+                    sort_keys=True,
+                )
+            )
             print(f"[agent] disabled: {error}", flush=True)
         paths = WorkerPaths(
             normalized_dir=self._paths.normalized,
@@ -368,6 +375,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     args = _parse_args(sys.argv[1:] if argv is None else argv)
     cli_overrides: dict = {}
     if args.data_root is not None:

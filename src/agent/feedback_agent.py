@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import queue
 import threading
@@ -12,6 +13,11 @@ from typing import Any
 
 
 TOOL_NAME = "classify_feedback"
+logger = logging.getLogger(__name__)
+
+
+def _log(level: int, event: str, **fields: Any) -> None:
+    logger.log(level, json.dumps({"event": event, **fields}, sort_keys=True))
 
 
 class FeedbackAgentError(RuntimeError):
@@ -182,18 +188,34 @@ class FeedbackAgentWorker:
         self._jobs: queue.Queue[Path | None] = queue.Queue()
         self._thread: threading.Thread | None = None
 
+    @staticmethod
+    def _needs_classification(artifact_path: Path) -> bool:
+        if not artifact_path.exists():
+            return True
+        try:
+            artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return True
+        if not isinstance(artifact, dict):
+            return True
+        return artifact.get("status") != "completed"
+
     def start(self) -> None:
         if self._thread is not None:
             return
         self._thread = threading.Thread(target=self._loop, name="feedback-agent", daemon=True)
         self._thread.start()
+        queued = 0
         for transcript_path in sorted(self._transcripts_dir.glob("visitor_*.json")):
-            if not (self._classifications_dir / transcript_path.name).exists():
-                self.enqueue(transcript_path)
+            if self._needs_classification(self._classifications_dir / transcript_path.name):
+                self.enqueue(transcript_path, reason="startup_scan")
+                queued += 1
+        _log(logging.INFO, "agent_worker_started", queued_count=queued)
 
-    def enqueue(self, transcript_path: Path) -> None:
+    def enqueue(self, transcript_path: Path, *, reason: str = "transcript_ready") -> None:
         if transcript_path.is_file():
             self._jobs.put(transcript_path)
+            _log(logging.INFO, "agent_wake", reason=reason, visitor_id=transcript_path.stem)
 
     def stop(self) -> None:
         if self._thread is None:
@@ -201,6 +223,7 @@ class FeedbackAgentWorker:
         self._jobs.put(None)
         self._thread.join(timeout=30.0)
         self._thread = None
+        _log(logging.INFO, "agent_worker_stopped")
 
     def _loop(self) -> None:
         while True:
@@ -217,16 +240,53 @@ class FeedbackAgentWorker:
             feedback_text = transcript.get("text")
             if not isinstance(feedback_text, str) or not feedback_text.strip():
                 raise FeedbackAgentError("transcript has no feedback text")
-            response = self._transport(
-                api_key=self._api_key,
-                model=self._model,
-                feedback_text=feedback_text,
-                projects_connections=self._catalog,
-            )
-            arguments = parse_classification_tool_call(response)
+            for attempt in range(1, 3):
+                _log(
+                    logging.INFO,
+                    "agent_model_request",
+                    attempt=attempt,
+                    catalog_count=len(self._catalog),
+                    feedback_chars=len(feedback_text),
+                    model=self._model,
+                    visitor_id=visitor_id,
+                )
+                response = self._transport(
+                    api_key=self._api_key,
+                    model=self._model,
+                    feedback_text=feedback_text,
+                    projects_connections=self._catalog,
+                )
+                tool_calls = response.get("tool_calls") if isinstance(response, dict) else None
+                _log(
+                    logging.INFO,
+                    "agent_model_response",
+                    attempt=attempt,
+                    tool_call_count=len(tool_calls) if isinstance(tool_calls, list) else None,
+                    visitor_id=visitor_id,
+                )
+                try:
+                    arguments = parse_classification_tool_call(response)
+                except FeedbackAgentError as error:
+                    if attempt == 2:
+                        raise
+                    _log(
+                        logging.WARNING,
+                        "agent_tool_call_retry",
+                        error_type=type(error).__name__,
+                        visitor_id=visitor_id,
+                    )
+                else:
+                    break
             if arguments.get("feedback_text") != feedback_text:
                 raise FeedbackAgentError("tool feedback_text does not match transcript")
             connections = arguments.get("projects_connections")
+            _log(
+                logging.INFO,
+                "agent_tool_call",
+                connection_count=len(connections) if isinstance(connections, list) else None,
+                tool=TOOL_NAME,
+                visitor_id=visitor_id,
+            )
             result = classify_feedback(feedback_text, connections)
             unknown = [project_id for project_id in result["project_ids"] if project_id not in self._catalog_ids]
             if unknown:
@@ -235,8 +295,20 @@ class FeedbackAgentWorker:
                 artifact_path,
                 {"visitor_id": visitor_id, "status": "completed", **result, "error": None},
             )
+            _log(
+                logging.INFO,
+                "agent_classification_completed",
+                project_count=len(result["project_ids"]),
+                visitor_id=visitor_id,
+            )
         except Exception as error:
             _write_json_atomic(
                 artifact_path,
                 {"visitor_id": visitor_id, "status": "failed", "project_ids": [], "error": str(error)},
+            )
+            _log(
+                logging.WARNING,
+                "agent_classification_failed",
+                error_type=type(error).__name__,
+                visitor_id=visitor_id,
             )

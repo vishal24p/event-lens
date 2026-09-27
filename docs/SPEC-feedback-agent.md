@@ -88,6 +88,22 @@ their segments, classification status, and linked project display data. The
 browser makes one request for the page data and does not call the old report
 endpoint.
 
+### Agent logs
+
+The worker emits JSON log events for `agent_wake`, `agent_model_request`,
+`agent_model_response`, `agent_tool_call`, `agent_classification_completed`,
+`agent_classification_failed`, `agent_worker_started`, and
+`agent_worker_stopped`, plus `agent_tool_call_retry` when recovery is needed.
+Events include visitor IDs, counts, model, and error types only; transcript
+text, project catalog contents, and API credentials are never logged.
+
+The classifier evaluates only the native `tool_calls` field. Assistant content
+or reasoning may accompany a valid call and is ignored. The only accepted
+result is exactly one `classify_feedback` call; text without a tool call and
+multiple tool calls remain failures after one bounded recovery attempt. Failed
+artifacts are retried when the worker starts again; completed artifacts are
+skipped.
+
 ## Project Structure
 
 ```text

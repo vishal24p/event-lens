@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -216,6 +217,7 @@ def _report_generator(config: Config) -> ReportGenerator:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     parser = argparse.ArgumentParser(prog="python -m src.operator_server")
     parser.add_argument("--config", type=Path, default=Path("config.toml"))
     parser.add_argument("--data-root", type=Path)
